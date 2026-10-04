@@ -1,13 +1,10 @@
 package com.calendarviewbox.data
 
-import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageInstaller
-import android.os.Build
-import com.calendarviewbox.InstallResultReceiver
+import android.net.Uri
+import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -21,9 +18,6 @@ data class UpdateInfo(val build: Int, val apkUrl: String)
  * Builds are tagged "build-N", and N is also the app's versionCode.
  */
 object Updater {
-
-    /** Messages from the system installer (e.g. a failed install), shown on the board. */
-    val installerMessages = MutableStateFlow<String?>(null)
 
     suspend fun latest(repo: String): UpdateInfo? = withContext(Dispatchers.IO) {
         if (repo.isBlank()) return@withContext null
@@ -80,24 +74,22 @@ object Updater {
         }
     }
 
-    /** Hands the APK to Android's installer. Android shows its own "Update this app?" prompt. */
-    fun install(context: Context, apk: File) {
-        val installer = context.packageManager.packageInstaller
-        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
-            setAppPackageName(context.packageName)
+    /**
+     * Opens Android's own "Do you want to update this app?" screen, the same one used when
+     * installing from the browser. Some devices (including Boox) refuse installs made
+     * directly through the installer API, but allow this route.
+     */
+    fun openSystemInstaller(context: Context, apk: File) {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.updates", apk)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        val sessionId = installer.createSession(params)
-        installer.openSession(sessionId).use { session ->
-            session.openWrite("CalendarViewBox.apk", 0, apk.length()).use { out ->
-                apk.inputStream().use { it.copyTo(out) }
-                session.fsync(out)
-            }
-            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
-            val callback = PendingIntent.getBroadcast(
-                context, sessionId, Intent(context, InstallResultReceiver::class.java), flags,
-            )
-            session.commit(callback.intentSender)
-        }
+        context.startActivity(intent)
+    }
+
+    /** Last resort: let the browser download the APK, as on first install. */
+    fun openInBrowser(context: Context, url: String) {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 }

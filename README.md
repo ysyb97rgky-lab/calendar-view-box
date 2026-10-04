@@ -50,7 +50,7 @@ You need a computer with [Android Studio](https://developer.android.com/studio).
 
 ### Updating
 
-Builds made by GitHub (the `build-N` releases) check for newer builds every 6 hours and when you tap Refresh. The first time you tap **Update**, Android asks you to allow installs from Calendar View Box; allow it, go back and tap Update again. Each update keeps your settings, since every build uses the same signing key. After it installs, reopen the app (or press Home if it's your Home app).
+Builds made by GitHub (the `build-N` releases) check for newer builds every 6 hours and when you tap Refresh. The first time you tap **Update**, Android asks you to allow installs from Calendar View Box; allow it, go back and tap Update again. The app downloads the new build and opens Android's standard "update this app?" screen, the same one used when installing from the browser. Each update keeps your settings, since every build uses the same signing key. After it installs, reopen the app (or press Home if it's your Home app). If anything goes wrong, Settings has **Open download page**, which opens the Releases page in the browser.
 
 ## 3. Boox settings
 
@@ -90,7 +90,6 @@ app/src/main/java/com/calendarviewbox/
   data/WeatherClient       Open-Meteo place search and forecast
   data/Http                small HTTP helper, tells offline apart from server errors
   data/Updater             checks GitHub Releases, downloads and installs new builds
-  InstallResultReceiver.kt shows Android's "update this app?" prompt
   data/Prefs               saved settings and date ranges
   ui/Board.kt              layout, to-do pane, toolbar, legend
   ui/CalendarViews.kt      week, 2 weeks, month, agenda

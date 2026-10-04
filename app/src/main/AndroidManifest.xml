@@ -36,8 +36,15 @@
             </intent-filter>
         </activity>
 
-        <receiver
-            android:name=".InstallResultReceiver"
-            android:exported="false" />
+        <!-- Shares a downloaded update with Android's installer screen. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths" />
+        </provider>
     </application>
 </manifest>

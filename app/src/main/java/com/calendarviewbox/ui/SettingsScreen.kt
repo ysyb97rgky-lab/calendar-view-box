@@ -200,6 +200,7 @@ fun SettingsScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             InkButton("Check for updates", onClick = vm::checkForUpdateNow)
             if (state.update != null) InkButton("Update now", selected = true, onClick = vm::installUpdate)
+            InkButton("Open download page", onClick = vm::openReleasePage)
         }
         state.updateStatus?.let { Hint(it) }
 

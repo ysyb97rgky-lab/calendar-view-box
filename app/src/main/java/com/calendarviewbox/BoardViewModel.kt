@@ -163,15 +163,6 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { weatherLoop() }
         viewModelScope.launch { flashLoop() }
         viewModelScope.launch { updateLoop() }
-        viewModelScope.launch {
-            Updater.installerMessages.collect { msg ->
-                if (msg != null) {
-                    updating = false
-                    _state.update { it.copy(updateStatus = msg) }
-                    Updater.installerMessages.value = null
-                }
-            }
-        }
     }
 
     private fun initialState(app: Application): BoardState {
@@ -371,6 +362,14 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Opens the Releases page in the browser, as a manual fallback. */
+    fun openReleasePage() {
+        if (BuildConfig.UPDATE_REPO.isBlank()) return
+        runCatching {
+            Updater.openInBrowser(getApplication<Application>(), "https://github.com/${BuildConfig.UPDATE_REPO}/releases/latest")
+        }
+    }
+
     /** Downloads the newer build and hands it to Android, which asks to confirm the update. */
     fun installUpdate() {
         val info = _state.value.update ?: return
@@ -394,8 +393,13 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
                 Updater.download(info.apkUrl, apk) { pct ->
                     _state.update { it.copy(updateStatus = "Downloading build ${info.build}... $pct%") }
                 }
-                _state.update { it.copy(updateStatus = "Installing. Tap Update when Android asks.") }
-                withContext(Dispatchers.IO) { Updater.install(app, apk) }
+                try {
+                    Updater.openSystemInstaller(app, apk)
+                    _state.update { it.copy(updateStatus = "Tap Update (or Install) on Android's screen, then reopen the app.") }
+                } catch (e: Exception) {
+                    Updater.openInBrowser(app, info.apkUrl)
+                    _state.update { it.copy(updateStatus = "Opened the download in the browser. Tap the file when it finishes.") }
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
