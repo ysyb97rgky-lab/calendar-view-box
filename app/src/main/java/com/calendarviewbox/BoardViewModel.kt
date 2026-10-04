@@ -100,6 +100,8 @@ data class BoardState(
     val currentBuild: Int = BuildConfig.VERSION_CODE,
     val update: UpdateInfo? = null,
     val updateStatus: String? = null,
+    /** Shown in Settings when adding a calendar account can't go ahead. */
+    val accountMessage: String? = null,
 ) {
     fun list(kind: ListKind): TaskList = if (kind == ListKind.TODO) todo else groceries
 }
@@ -206,6 +208,8 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
 
     fun onResume() {
         _state.update { it.copy(use24h = DateFormat.is24HourFormat(getApplication<Application>())) }
+        // Coming back from signing in to an account: ask it to sync so its calendars arrive quickly.
+        viewModelScope.launch(Dispatchers.IO) { runCatching { calendarRepo.requestSync() } }
         registerObserver()
         reloadCalendar()
         viewModelScope.launch { refreshLists() }
@@ -231,6 +235,10 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { refreshWeather() }
         viewModelScope.launch { checkForUpdate(manual = false) }
         flash()
+    }
+
+    fun showAccountMessage(message: String?) {
+        _state.update { it.copy(accountMessage = message) }
     }
 
     fun setActiveList(kind: ListKind) {
@@ -485,6 +493,13 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
                 val mode = prefs.mode
                 val result = withContext(Dispatchers.IO) {
                     val calendars = calendarRepo.calendars()
+                    val existing = calendars.map { it.id }.toSet()
+                    val known = prefs.knownCalendarIds
+                    if (known.isNotEmpty() && prefs.calendarsConfigured) {
+                        val fresh = calendars.filter { it.id !in known && it.visible && it.syncing }.map { it.id }
+                        if (fresh.isNotEmpty()) prefs.selectedCalendarIds = prefs.selectedCalendarIds + fresh
+                    }
+                    if (existing != known) prefs.knownCalendarIds = existing
                     val shown = if (prefs.calendarsConfigured) {
                         val existing = calendars.map { it.id }.toSet()
                         prefs.selectedCalendarIds.intersect(existing)

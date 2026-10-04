@@ -159,6 +159,8 @@ class CalendarRepository(private val context: Context) {
             putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true)
             putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true)
         }
+        // A null account asks every account to sync, which also covers one that was just added.
+        runCatching { ContentResolver.requestSync(null, CalendarContract.AUTHORITY, extras) }
         accounts.forEach { account ->
             runCatching { ContentResolver.requestSync(account, CalendarContract.AUTHORITY, extras) }
         }

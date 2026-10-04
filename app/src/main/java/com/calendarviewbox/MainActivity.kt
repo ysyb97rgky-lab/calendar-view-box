@@ -1,6 +1,7 @@
 package com.calendarviewbox
 
 import android.Manifest
+import android.accounts.AccountManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -39,6 +40,8 @@ class MainActivity : ComponentActivity() {
                 onOpenAndroidSettings = {
                     startActivity(Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 },
+                onAddAccount = ::addCalendarAccount,
+                onManageAccounts = ::manageAccounts,
             )
         }
 
@@ -64,6 +67,29 @@ class MainActivity : ComponentActivity() {
         permissionLauncher.launch(
             arrayOf(Manifest.permission.READ_CALENDAR, Manifest.permission.WRITE_CALENDAR)
         )
+    }
+
+    /** Opens Android's sign-in screen. With [googleOnly] it goes straight to Google sign-in. */
+    private fun addCalendarAccount(googleOnly: Boolean) {
+        vm.showAccountMessage(null)
+        val hasGoogle = runCatching {
+            AccountManager.get(this).authenticatorTypes.any { it.type == "com.google" }
+        }.getOrDefault(false)
+        if (googleOnly && !hasGoogle) {
+            vm.showAccountMessage(
+                "Google sign-in isn't available on this Boox yet. Turn on Google Play in the Boox settings, then try again."
+            )
+            return
+        }
+        val intent = Intent(Settings.ACTION_ADD_ACCOUNT)
+        if (googleOnly) intent.putExtra(Settings.EXTRA_ACCOUNT_TYPES, arrayOf("com.google"))
+        runCatching { startActivity(intent) }.onFailure { manageAccounts() }
+    }
+
+    /** Android's account list, for removing an account or switching calendar sync on. */
+    private fun manageAccounts() {
+        runCatching { startActivity(Intent(Settings.ACTION_SYNC_SETTINGS)) }
+            .onFailure { startActivity(Intent(Settings.ACTION_SETTINGS)) }
     }
 
     private fun hideSystemBars() {

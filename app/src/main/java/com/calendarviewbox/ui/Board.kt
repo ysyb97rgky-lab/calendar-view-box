@@ -70,6 +70,8 @@ fun App(
     vm: BoardViewModel,
     onRequestPermission: () -> Unit,
     onOpenAndroidSettings: () -> Unit,
+    onAddAccount: (googleOnly: Boolean) -> Unit,
+    onManageAccounts: () -> Unit,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
@@ -91,6 +93,8 @@ fun App(
                             vm.manualRefresh()
                         },
                         onOpenAndroidSettings = onOpenAndroidSettings,
+                        onAddAccount = onAddAccount,
+                        onManageAccounts = onManageAccounts,
                     )
                 } else {
                     // Back does nothing on the board, so a stray tap can't close it.
@@ -101,6 +105,7 @@ fun App(
                         onOpenSettings = { showSettings = true },
                         onRequestPermission = onRequestPermission,
                         onAdd = { adding = true },
+                        onAddAccount = { onAddAccount(true) },
                     )
                     if (adding) {
                         BackHandler { adding = false }
@@ -125,6 +130,7 @@ private fun Board(
     onOpenSettings: () -> Unit,
     onRequestPermission: () -> Unit,
     onAdd: () -> Unit,
+    onAddAccount: () -> Unit,
 ) {
     Row(Modifier.fillMaxSize().padding(24.dp)) {
         TodoPane(
@@ -158,7 +164,7 @@ private fun Board(
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Legend(state)
+            Legend(state, onAddAccount)
         }
     }
 }
@@ -527,8 +533,18 @@ private fun Toolbar(
 }
 
 @Composable
-private fun Legend(state: BoardState) {
+private fun Legend(state: BoardState, onAddAccount: () -> Unit) {
     val shown = state.calendars.filter { it.id in state.shownCalendarIds }
+    if (state.hasCalendarPermission && shown.isEmpty()) {
+        // Nothing to show yet: offer sign-in right here instead of sending people to Android settings.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("No calendars yet.", fontSize = 18.sp, color = Ink.Black)
+            Spacer(Modifier.width(16.dp))
+            InkButton("Add Google account", selected = true, onClick = onAddAccount)
+        }
+        state.accountMessage?.let { Text(it, fontSize = 16.sp, color = Ink.Black, modifier = Modifier.padding(top = 6.dp)) }
+        return
+    }
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         verticalAlignment = Alignment.CenterVertically,

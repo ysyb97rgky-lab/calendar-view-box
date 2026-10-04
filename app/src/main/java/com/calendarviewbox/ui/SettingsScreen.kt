@@ -47,6 +47,8 @@ fun SettingsScreen(
     vm: BoardViewModel,
     onClose: () -> Unit,
     onOpenAndroidSettings: () -> Unit,
+    onAddAccount: (googleOnly: Boolean) -> Unit,
+    onManageAccounts: () -> Unit,
 ) {
     var token by remember { mutableStateOf(vm.currentToken()) }
     var project by remember { mutableStateOf(vm.currentProject()) }
@@ -137,12 +139,20 @@ fun SettingsScreen(
         Hint("Forecasts come from Open-Meteo, which is free and needs no account.")
 
         Section("Calendars")
-        Hint("Tick the calendars to show. Tap a marker to change how that calendar's events look.")
+        Hint("Sign in to each Google account whose calendar should show. New calendars appear here within a minute or two and are ticked automatically.")
         Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            InkButton("Add Google account", selected = true) { onAddAccount(true) }
+            InkButton("Other account type") { onAddAccount(false) }
+            InkButton("Manage accounts", onClick = onManageAccounts)
+        }
+        state.accountMessage?.let { Hint(it) }
+        Spacer(Modifier.height(12.dp))
+        Hint("Tick the calendars to show. Tap a marker to change how that calendar's events look.")
         if (state.calendars.isEmpty()) {
             Text(
                 if (state.hasCalendarPermission) {
-                    "No calendars on this device yet. Add the display's Google account in Android settings, then wait a few minutes for it to sync."
+                    "No calendars yet. Tap Add Google account above and sign in."
                 } else {
                     "Calendar access isn't allowed yet. Go back to the board and tap Allow calendar access."
                 },

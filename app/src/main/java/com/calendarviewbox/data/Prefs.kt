@@ -82,6 +82,11 @@ class Prefs(context: Context) {
         get() = sp.getStringSet("calendars", emptySet()).orEmpty().mapNotNull { it.toLongOrNull() }.toSet()
         set(value) = sp.edit().putStringSet("calendars", value.map { it.toString() }.toSet()).apply()
 
+    /** Every calendar id seen so far. New ones (e.g. from a just-added account) get ticked automatically. */
+    var knownCalendarIds: Set<Long>
+        get() = sp.getStringSet("known_calendars", emptySet()).orEmpty().mapNotNull { it.toLongOrNull() }.toSet()
+        set(value) = sp.edit().putStringSet("known_calendars", value.map { it.toString() }.toSet()).apply()
+
     fun styleFor(calendarId: Long): Int? = sp.getInt("style_$calendarId", -1).takeIf { it >= 0 }
     fun setStyle(calendarId: Long, style: Int) = sp.edit().putInt("style_$calendarId", style).apply()
 

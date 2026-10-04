@@ -14,12 +14,14 @@ A full-screen family calendar and shared to-do list for a Boox Note Max (or any 
 ## 1. Accounts (do these first)
 
 ### Google Calendar
-1. Create a new Google account just for the display, for example `ourfamily.display@gmail.com`.
-2. You and your wife each share your calendar with that address. In Google Calendar on a computer: Settings, pick your calendar under "Settings for my calendars", then "Share with specific people", add the display address with **See all event details**.
-3. Sign in to the display account in a browser, open each share email and add the calendar.
-4. Optional: create a "Family" calendar for joint events and share it with each other and with the display account.
 
-If your calendar is still in iCloud, move it to Google first. On the iPhone, add your Google account in the Calendar settings and set Google as the default calendar.
+Sign in on the Boox itself. In the app, open **Settings** and tap **Add Google account**, then sign in. Repeat for each person's account (your wife will likely need to approve the sign-in on her phone). Calendars arrive within a minute or two and are ticked automatically. If the board has no calendars yet, the same button sits at the bottom of the calendar.
+
+- If Google sign-in isn't offered, turn on Google Play in the Boox settings first.
+- To keep personal accounts on the wall tidy, open **Manage accounts** and switch off everything except Calendar for each account.
+- If your calendar is still in iCloud, move it to Google first, or use the DAVx5 app with an Apple app-specific password.
+
+Prefer not to put personal accounts on the Boox? Share your calendars with one Google account made just for the display and sign in with that instead.
 
 ### Todoist (the shared to-do list)
 1. On your phone, create a project called `Home` and share it with your wife. Do the same for a project called `Groceries`. Sections in Groceries (e.g. Fruit and veg, Dairy) show as headings on the board.
