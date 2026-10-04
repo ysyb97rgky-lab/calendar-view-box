@@ -2,13 +2,14 @@
 
 A full-screen family calendar and shared to-do list for a Boox Note Max (or any Android e-ink tablet), hung in landscape.
 
-- **Left:** today's date, the weather, and the shared Todoist list. Tap a circle to tick an item off, or tap Add to type a new one.
+- **Left:** today's date, the weather, and two shared Todoist lists on tabs: To do and Groceries. Tap a circle to tick an item off, or tap Add to type a new one. Groceries has one-tap buttons for staples, and the board returns to To do after 5 minutes.
 - **Right:** your Google calendars as Week, 2 weeks, Month or Agenda. The choice is remembered. On Saturday and Sunday the Week view starts from today, so the coming week is in view.
 - Black, white and greys only. Each calendar gets its own marker (outlined, light grey, black or dark grey), shown in the legend at the bottom.
 - Calendar changes show within a minute or so of syncing. The to-do list checks Todoist every 30 seconds.
 - If the connection drops for more than a minute, a black "Offline since..." note replaces the "List updated" line. The last list and forecast stay on screen, even after a restart.
 - Weather comes from Open-Meteo, which is free and needs no account. It updates every 30 minutes.
 - Once an hour the screen flashes black then white to clear e-ink ghosting.
+- When a newer build is on the GitHub Releases page, an **Update** button appears next to Refresh. One tap downloads it and Android asks you to confirm.
 
 ## 1. Accounts (do these first)
 
@@ -21,8 +22,8 @@ A full-screen family calendar and shared to-do list for a Boox Note Max (or any 
 If your calendar is still in iCloud, move it to Google first. On the iPhone, add your Google account in the Calendar settings and set Google as the default calendar.
 
 ### Todoist (the shared to-do list)
-1. On your phone, create a project called `Home` and share it with your wife.
-2. Create a Todoist account for the display (the display Gmail works) and share `Home` with it too.
+1. On your phone, create a project called `Home` and share it with your wife. Do the same for a project called `Groceries`. Sections in Groceries (e.g. Fruit and veg, Dairy) show as headings on the board.
+2. Create a Todoist account for the display (the display Gmail works) and share both projects with it too.
 3. Sign in to that display account at todoist.com, accept the invite, then go to Settings, Integrations, Developer and copy the **API token**.
 
 Giving the display its own Todoist account means the token on the wall can only see the `Home` list.
@@ -45,6 +46,10 @@ You need a computer with [Android Studio](https://developer.android.com/studio).
 4. On the Boox, sign in to the **display** Google account in Android settings (Accounts) and let it sync.
 5. Open Calendar View Box and allow calendar access.
 
+### Updating
+
+Builds made by GitHub (the `build-N` releases) check for newer builds every 6 hours and when you tap Refresh. The first time you tap **Update**, Android asks you to allow installs from Calendar View Box; allow it, go back and tap Update again. Each update keeps your settings, since every build uses the same signing key. After it installs, reopen the app (or press Home if it's your Home app).
+
 ## 3. Boox settings
 
 Boox moves these between firmware versions. If a name doesn't match, search the settings for the key word.
@@ -59,7 +64,7 @@ Boox moves these between firmware versions. If a name doesn't match, search the 
 - **Week / 2 weeks / Month / Agenda** buttons switch the view.
 - **Refresh** asks Android to sync calendars, reloads the to-do list and weather, and redraws the screen.
 - **Add** (next to "To do") opens the keyboard. The item goes into the shared Todoist project and shows on both phones. Dates typed here aren't read as due dates, so add dated items from a phone.
-- **Settings** lets you pick which calendars show, tap a calendar's marker to change its style, set the Todoist token and project, set the weather location, and change text size.
+- **Settings** lets you pick which calendars show, tap a calendar's marker to change its style, set the Todoist token and project names, edit the grocery quick-add items, set the weather location, check for updates, and change text size.
 - Back does nothing on the main board, so a stray tap won't close it.
 
 ## Troubleshooting
@@ -82,6 +87,8 @@ app/src/main/java/com/calendarviewbox/
   data/TodoistClient       Todoist API v1 (list projects, list, add and close tasks)
   data/WeatherClient       Open-Meteo place search and forecast
   data/Http                small HTTP helper, tells offline apart from server errors
+  data/Updater             checks GitHub Releases, downloads and installs new builds
+  InstallResultReceiver.kt shows Android's "update this app?" prompt
   data/Prefs               saved settings and date ranges
   ui/Board.kt              layout, to-do pane, toolbar, legend
   ui/CalendarViews.kt      week, 2 weeks, month, agenda

@@ -57,6 +57,17 @@ class Prefs(context: Context) {
         get() = sp.getString("todoist_project", null) ?: BuildConfig.TODOIST_PROJECT
         set(value) = sp.edit().putString("todoist_project", value.trim()).apply()
 
+    /** Blank hides the Groceries tab. */
+    var groceriesProject: String
+        get() = sp.getString("groceries_project", null) ?: DEFAULT_GROCERIES_PROJECT
+        set(value) = sp.edit().putString("groceries_project", value.trim()).apply()
+
+    /** One-tap items in the Groceries add panel. */
+    var staples: List<String>
+        get() = (sp.getString("staples", null) ?: DEFAULT_STAPLES)
+            .split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        set(value) = sp.edit().putString("staples", value.joinToString(", ")).apply()
+
     var mode: CalendarMode
         get() = runCatching { CalendarMode.valueOf(sp.getString("mode", null) ?: "WEEK") }
             .getOrDefault(CalendarMode.WEEK)
@@ -110,7 +121,7 @@ class Prefs(context: Context) {
 
     // ---- last good to-do list, shown after a restart while offline ----
 
-    fun saveTasks(tasks: List<TodoTask>, at: Long) {
+    fun saveTasks(list: String, tasks: List<TodoTask>, at: Long) {
         val arr = JSONArray()
         tasks.forEach { t ->
             arr.put(
@@ -122,13 +133,14 @@ class Prefs(context: Context) {
                     .put("due", t.due?.toString() ?: JSONObject.NULL)
                     .put("time", t.dueTime?.toString() ?: JSONObject.NULL)
                     .put("recurring", t.isRecurring)
+                    .put("section", t.sectionId ?: JSONObject.NULL)
             )
         }
-        sp.edit().putString("tasks_json", arr.toString()).putLong("tasks_at", at).apply()
+        sp.edit().putString("tasks_json_$list", arr.toString()).putLong("tasks_at_$list", at).apply()
     }
 
-    fun loadTasks(): Pair<List<TodoTask>, Long>? = runCatching {
-        val raw = sp.getString("tasks_json", null) ?: return null
+    fun loadTasks(list: String): Pair<List<TodoTask>, Long>? = runCatching {
+        val raw = sp.getString("tasks_json_$list", null) ?: return null
         val arr = JSONArray(raw)
         val tasks = (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
@@ -140,12 +152,29 @@ class Prefs(context: Context) {
                 due = if (o.isNull("due")) null else LocalDate.parse(o.getString("due")),
                 dueTime = if (o.isNull("time")) null else LocalTime.parse(o.getString("time")),
                 isRecurring = o.optBoolean("recurring"),
+                sectionId = if (!o.has("section") || o.isNull("section")) null else o.getString("section"),
             )
         }
-        tasks to sp.getLong("tasks_at", 0L)
+        tasks to sp.getLong("tasks_at_$list", 0L)
     }.getOrNull()
+
+    fun saveSections(list: String, sections: List<TodoSection>) {
+        val arr = JSONArray()
+        sections.forEach { arr.put(JSONObject().put("id", it.id).put("name", it.name).put("order", it.order)) }
+        sp.edit().putString("sections_json_$list", arr.toString()).apply()
+    }
+
+    fun loadSections(list: String): List<TodoSection> = runCatching {
+        val arr = JSONArray(sp.getString("sections_json_$list", null) ?: return emptyList())
+        (0 until arr.length()).map {
+            val o = arr.getJSONObject(it)
+            TodoSection(o.getString("id"), o.getString("name"), o.optInt("order"))
+        }
+    }.getOrDefault(emptyList())
 
     companion object {
         const val DEFAULT_WEATHER_PLACE = "Sydney, NSW"
+        const val DEFAULT_GROCERIES_PROJECT = "Groceries"
+        const val DEFAULT_STAPLES = "Milk, Bread, Eggs, Bananas, Butter, Cheese, Coffee, Toilet paper"
     }
 }

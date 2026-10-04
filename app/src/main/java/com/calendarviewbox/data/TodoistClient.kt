@@ -18,7 +18,11 @@ data class TodoTask(
     val due: LocalDate?,
     val dueTime: LocalTime?,
     val isRecurring: Boolean,
+    val sectionId: String? = null,
 )
+
+/** A Todoist section, e.g. "Fruit and veg" in the Groceries project. */
+data class TodoSection(val id: String, val name: String, val order: Int)
 
 /** Minimal client for the Todoist API v1 (https://developer.todoist.com/api/v1/). */
 class TodoistClient(private val token: String) {
@@ -26,15 +30,17 @@ class TodoistClient(private val token: String) {
     private val base = "https://api.todoist.com/api/v1"
 
     /**
-     * Finds the project to show. Matches by name (case-insensitive). With a blank name,
+     * Finds a project by name (case-insensitive). With a blank name and [fallbackToShared],
      * picks the first shared project, then the first project that isn't the Inbox.
      */
-    suspend fun findProjectId(name: String): String? = withContext(Dispatchers.IO) {
+    suspend fun findProjectId(name: String, fallbackToShared: Boolean = true): String? = withContext(Dispatchers.IO) {
         val projects = getAll("$base/projects")
             .filterNot { it.optBoolean("is_deleted") || it.optBoolean("is_archived") }
         if (name.isNotBlank()) {
             projects.firstOrNull { it.optString("name").equals(name.trim(), ignoreCase = true) }
                 ?.optString("id")
+        } else if (!fallbackToShared) {
+            null
         } else {
             val candidates = projects.filterNot { it.optBoolean("inbox_project") }
             (candidates.firstOrNull { it.optBoolean("shared") } ?: candidates.firstOrNull())
@@ -46,6 +52,18 @@ class TodoistClient(private val token: String) {
         getAll("$base/tasks?project_id=${enc(projectId)}")
             .filterNot { it.optBoolean("checked") || it.optBoolean("is_deleted") }
             .map { parseTask(it) }
+    }
+
+    suspend fun sections(projectId: String): List<TodoSection> = withContext(Dispatchers.IO) {
+        getAll("$base/sections?project_id=${enc(projectId)}")
+            .filterNot { it.optBoolean("is_deleted") || it.optBoolean("is_archived") }
+            .map {
+                TodoSection(
+                    id = it.optString("id"),
+                    name = it.optString("name"),
+                    order = it.optInt("section_order", it.optInt("order", 0)),
+                )
+            }
     }
 
     suspend fun close(taskId: String) {
@@ -91,6 +109,7 @@ class TodoistClient(private val token: String) {
             due = date,
             dueTime = time,
             isRecurring = recurring,
+            sectionId = if (o.isNull("section_id")) null else o.optString("section_id").takeIf { it.isNotBlank() },
         )
     }
 

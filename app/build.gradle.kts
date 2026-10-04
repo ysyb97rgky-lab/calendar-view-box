@@ -24,8 +24,11 @@ android {
         applicationId = "com.calendarviewbox"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1"
+        // On GitHub, each build's number becomes the version, so the app can tell when a newer one exists.
+        val buildNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "0").toInt()
+        versionCode = maxOf(buildNumber, 1)
+        versionName = "build-$buildNumber"
+        buildConfigField("String", "UPDATE_REPO", "\"" + (System.getenv("GITHUB_REPOSITORY") ?: "") + "\"")
         buildConfigField("String", "TODOIST_TOKEN", quoted("todoist.token"))
         buildConfigField("String", "TODOIST_PROJECT", quoted("todoist.project"))
         buildConfigField("String", "WEATHER_PLACE", quoted("weather.place"))

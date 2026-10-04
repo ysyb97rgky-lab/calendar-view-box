@@ -51,6 +51,8 @@ fun SettingsScreen(
     var token by remember { mutableStateOf(vm.currentToken()) }
     var project by remember { mutableStateOf(vm.currentProject()) }
     var place by remember { mutableStateOf(vm.currentWeatherPlace()) }
+    var groceries by remember { mutableStateOf(vm.currentGroceriesProject()) }
+    var staples by remember { mutableStateOf(vm.currentStaples()) }
     var showToken by remember { mutableStateOf(false) }
 
     Column(
@@ -70,7 +72,7 @@ fun SettingsScreen(
             )
             Spacer(Modifier.weight(1f))
             InkButton("Save and close", selected = true) {
-                vm.saveTodoist(token, project)
+                vm.saveTodoist(token, project, groceries, staples)
                 vm.saveWeatherPlace(place)
                 onClose()
             }
@@ -101,6 +103,25 @@ fun SettingsScreen(
             modifier = Modifier.width(640.dp),
         )
         Hint("Leave blank to use the first shared project on that account.")
+
+        Section("Groceries")
+        Hint("A second shared Todoist project. Share it with the display's Todoist account. Leave blank to hide the tab.")
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = groceries,
+            onValueChange = { groceries = it },
+            label = { Text("Groceries project name") },
+            singleLine = true,
+            modifier = Modifier.width(640.dp),
+        )
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = staples,
+            onValueChange = { staples = it },
+            label = { Text("Quick add items, separated by commas") },
+            modifier = Modifier.width(900.dp),
+        )
+        Hint("These appear as one-tap buttons when adding groceries on the board.")
 
         Section("Weather")
         Hint("Type your town or suburb. Add the state if the name is common, e.g. Burwood, NSW.")
@@ -162,6 +183,15 @@ fun SettingsScreen(
                 InkButton(label, selected = state.textScale == scale) { vm.setTextScale(scale) }
             }
         }
+
+        Section("App updates")
+        Hint("Installed: build ${state.currentBuild}" + (state.update?.let { ". Build ${it.build} is available." } ?: ""))
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            InkButton("Check for updates", onClick = vm::checkForUpdateNow)
+            if (state.update != null) InkButton("Update now", selected = true, onClick = vm::installUpdate)
+        }
+        state.updateStatus?.let { Hint(it) }
 
         Section("Device")
         Hint("Use this to change the Home app or other Android settings.")

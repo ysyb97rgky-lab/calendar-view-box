@@ -8,6 +8,9 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -53,6 +56,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.calendarviewbox.BoardState
 import com.calendarviewbox.BoardViewModel
 import com.calendarviewbox.DisplayTask
+import com.calendarviewbox.ListKind
 import com.calendarviewbox.OFFLINE_GRACE_MS
 import com.calendarviewbox.data.CalendarMode
 import kotlinx.coroutines.delay
@@ -100,7 +104,12 @@ fun App(
                     )
                     if (adding) {
                         BackHandler { adding = false }
-                        AddTaskOverlay(onSubmit = vm::addTask, onClose = { adding = false })
+                        AddTaskOverlay(
+                            kind = state.activeList,
+                            staples = if (state.activeList == ListKind.GROCERIES) state.staples else emptyList(),
+                            onSubmit = { text, done -> vm.addTask(state.activeList, text, done) },
+                            onClose = { adding = false },
+                        )
                     }
                 }
                 FlashOverlay(state.flashTick)
@@ -122,6 +131,7 @@ private fun Board(
             state = state,
             onComplete = vm::completeTask,
             onAdd = onAdd,
+            onSwitch = vm::setActiveList,
             modifier = Modifier.weight(0.3f).fillMaxHeight(),
         )
         Spacer(Modifier.width(24.dp))
@@ -133,7 +143,12 @@ private fun Board(
                 onMode = vm::setMode,
                 onRefresh = vm::manualRefresh,
                 onSettings = onOpenSettings,
+                updateLabel = state.update?.let { "Update" },
+                onUpdate = vm::installUpdate,
             )
+            state.updateStatus?.let {
+                Text(it, fontSize = 18.sp, color = Ink.Black, modifier = Modifier.padding(top = 8.dp))
+            }
             Spacer(Modifier.height(16.dp))
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (state.hasCalendarPermission) {
@@ -159,8 +174,11 @@ private fun TodoPane(
     state: BoardState,
     onComplete: (String) -> Unit,
     onAdd: () -> Unit,
+    onSwitch: (ListKind) -> Unit,
     modifier: Modifier,
 ) {
+    val active = state.activeList
+    val list = state.list(active)
     Column(modifier) {
         // The one large element: a printed-calendar style weekday.
         Text(
@@ -181,22 +199,23 @@ private fun TodoPane(
         Spacer(Modifier.height(16.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("To do", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Ink.Black)
-            if (state.tasks.isNotEmpty()) {
-                Spacer(Modifier.width(12.dp))
-                Text("${state.tasks.size}", fontSize = 24.sp, color = Ink.DarkGrey)
+            ListTab(ListKind.TODO, state.todo.tasks.size, active == ListKind.TODO, onSwitch)
+            if (state.groceriesEnabled) {
+                Spacer(Modifier.width(24.dp))
+                ListTab(ListKind.GROCERIES, state.groceries.tasks.size, active == ListKind.GROCERIES, onSwitch)
             }
             Spacer(Modifier.weight(1f))
             InkButton("Add", onClick = onAdd)
         }
         Spacer(Modifier.height(8.dp))
 
-        state.todoError?.let {
+        list.error?.let {
             Text(it, fontSize = 18.sp, color = Ink.Black, modifier = Modifier.padding(vertical = 6.dp))
         }
-        if (state.tasks.isEmpty() && state.todoError == null) {
+        if (list.tasks.isEmpty() && list.error == null) {
             Text(
-                "Nothing on the list. Add items in Todoist on your phone.",
+                if (active == ListKind.TODO) "Nothing on the list. Add items in Todoist on your phone."
+                else "Nothing to buy. Tap Add, or add items in Todoist.",
                 fontSize = 20.sp,
                 color = Ink.DarkGrey,
                 modifier = Modifier.padding(vertical = 6.dp),
@@ -204,14 +223,31 @@ private fun TodoPane(
         }
 
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-            items(state.tasks, key = { it.task.id }) { row ->
-                TaskRow(
-                    row = row,
-                    today = state.today,
-                    use24h = state.use24h,
-                    done = row.task.id in state.completingIds,
-                    onComplete = onComplete,
-                )
+            if (active == ListKind.GROCERIES && list.sections.isNotEmpty()) {
+                // Group by Todoist section (e.g. Fruit and veg, Dairy). Unsectioned items go first.
+                val bySection = list.tasks.groupBy { row ->
+                    row.task.sectionId?.takeIf { id -> list.sections.any { it.id == id } }
+                }
+                bySection[null]?.let { rows ->
+                    items(rows, key = { it.task.id }) { row -> TaskRowFor(row, state, onComplete) }
+                }
+                list.sections.forEach { section ->
+                    val rows = bySection[section.id].orEmpty()
+                    if (rows.isNotEmpty()) {
+                        item(key = "section_${section.id}") {
+                            Text(
+                                section.name,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Ink.DarkGrey,
+                                modifier = Modifier.padding(top = 14.dp, bottom = 2.dp),
+                            )
+                        }
+                        items(rows, key = { it.task.id }) { row -> TaskRowFor(row, state, onComplete) }
+                    }
+                }
+            } else {
+                items(list.tasks, key = { it.task.id }) { row -> TaskRowFor(row, state, onComplete) }
             }
         }
 
@@ -221,10 +257,53 @@ private fun TodoPane(
         if (offlineSince != null) {
             OfflineNote(offlineSince, state.use24h)
         } else {
-            state.lastTodoSync?.let {
+            list.lastSync?.let {
                 Text("List updated ${formatClock(it, state.use24h)}", fontSize = 16.sp, color = Ink.Grey)
             }
         }
+    }
+}
+
+@Composable
+private fun TaskRowFor(row: DisplayTask, state: BoardState, onComplete: (String) -> Unit) {
+    TaskRow(
+        row = row,
+        today = state.today,
+        use24h = state.use24h,
+        done = row.task.id in state.completingIds,
+        onComplete = onComplete,
+    )
+}
+
+/** "To do 8" / "Groceries 5". The open one is bold and underlined. */
+@Composable
+private fun ListTab(kind: ListKind, count: Int, selected: Boolean, onSwitch: (ListKind) -> Unit) {
+    // IntrinsicSize keeps the underline as wide as the label instead of the whole row.
+    Column(
+        Modifier
+            .width(IntrinsicSize.Max)
+            .clickable(interactionSource = null, indication = null) { onSwitch(kind) }
+            .padding(vertical = 4.dp)
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                kind.title,
+                fontSize = 30.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) Ink.Black else Ink.DarkGrey,
+            )
+            if (count > 0) {
+                Spacer(Modifier.width(8.dp))
+                Text("$count", fontSize = 22.sp, color = Ink.DarkGrey, modifier = Modifier.padding(bottom = 2.dp))
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        Box(
+            Modifier
+                .height(3.dp)
+                .fillMaxWidth()
+                .background(if (selected) Ink.Black else Ink.White)
+        )
     }
 }
 
@@ -245,8 +324,11 @@ private fun OfflineNote(sinceMillis: Long, use24h: Boolean) {
 }
 
 /** Full-screen white panel with the keyboard, so nothing grey or animated sits over the board. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AddTaskOverlay(
+    kind: ListKind,
+    staples: List<String>,
     onSubmit: (String, (String?) -> Unit) -> Unit,
     onClose: () -> Unit,
 ) {
@@ -284,7 +366,7 @@ private fun AddTaskOverlay(
             .padding(horizontal = 48.dp, vertical = 40.dp)
     ) {
         Text(
-            "Add to the list",
+            if (kind == ListKind.GROCERIES) "Add to groceries" else "Add to the list",
             fontSize = 40.sp,
             fontFamily = FontFamily.Serif,
             fontWeight = FontWeight.Bold,
@@ -320,6 +402,27 @@ private fun AddTaskOverlay(
         }
         message?.let {
             Text(it, fontSize = 20.sp, color = Ink.Black, modifier = Modifier.padding(top = 16.dp))
+        }
+        if (staples.isNotEmpty()) {
+            Text(
+                "Quick add",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                color = Ink.Black,
+                modifier = Modifier.padding(top = 28.dp, bottom = 10.dp),
+            )
+            // One tap adds the item and leaves this panel open for more.
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                staples.forEach { item ->
+                    InkButton(item) {
+                        message = "Adding $item..."
+                        onSubmit(item) { error -> message = error ?: "Added $item." }
+                    }
+                }
+            }
         }
     }
 }
@@ -405,6 +508,8 @@ private fun Toolbar(
     onMode: (CalendarMode) -> Unit,
     onRefresh: () -> Unit,
     onSettings: () -> Unit,
+    updateLabel: String?,
+    onUpdate: () -> Unit,
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -414,6 +519,7 @@ private fun Toolbar(
         }
         Spacer(Modifier.weight(1f))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (updateLabel != null) InkButton(updateLabel, selected = true, onClick = onUpdate)
             InkButton("Refresh", onClick = onRefresh)
             InkButton("Settings", onClick = onSettings)
         }

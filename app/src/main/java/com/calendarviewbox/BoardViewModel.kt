@@ -2,6 +2,9 @@ package com.calendarviewbox
 
 import android.Manifest
 import android.app.Application
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.net.ConnectivityManager
@@ -19,7 +22,10 @@ import com.calendarviewbox.data.CalendarMode
 import com.calendarviewbox.data.CalendarRepository
 import com.calendarviewbox.data.EventItem
 import com.calendarviewbox.data.Prefs
+import com.calendarviewbox.data.TodoSection
 import com.calendarviewbox.data.TodoTask
+import com.calendarviewbox.data.UpdateInfo
+import com.calendarviewbox.data.Updater
 import com.calendarviewbox.data.TodoistClient
 import com.calendarviewbox.data.Weather
 import com.calendarviewbox.data.WeatherClient
@@ -42,6 +48,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import java.io.File
 import java.time.ZoneId
 
 const val STYLE_COUNT = 4
@@ -49,7 +56,22 @@ const val STYLE_COUNT = 4
 /** How long the connection must be gone before the offline note appears. */
 const val OFFLINE_GRACE_MS = 60_000L
 
+/** How long the Groceries tab stays open before the board returns to To do. */
+const val LIST_RETURN_MS = 5 * 60_000L
+
 data class DisplayTask(val task: TodoTask, val depth: Int)
+
+enum class ListKind(val key: String, val title: String) {
+    TODO("todo", "To do"),
+    GROCERIES("groceries", "Groceries"),
+}
+
+data class TaskList(
+    val tasks: List<DisplayTask> = emptyList(),
+    val sections: List<TodoSection> = emptyList(),
+    val error: String? = null,
+    val lastSync: LocalTime? = null,
+)
 
 data class BoardState(
     val today: LocalDate = LocalDate.now(),
@@ -62,10 +84,12 @@ data class BoardState(
     val styles: Map<Long, Int> = emptyMap(),
     val events: List<EventItem> = emptyList(),
     val calendarError: String? = null,
-    val tasks: List<DisplayTask> = emptyList(),
+    val todo: TaskList = TaskList(),
+    val groceries: TaskList = TaskList(),
+    val groceriesEnabled: Boolean = true,
+    val activeList: ListKind = ListKind.TODO,
+    val staples: List<String> = emptyList(),
     val completingIds: Set<String> = emptySet(),
-    val todoError: String? = null,
-    val lastTodoSync: LocalTime? = null,
     val weather: Weather? = null,
     val weatherPlace: String? = null,
     val weatherError: String? = null,
@@ -73,7 +97,12 @@ data class BoardState(
     val offlineSinceMillis: Long? = null,
     val textScale: Float = 1f,
     val flashTick: Int = 0,
-)
+    val currentBuild: Int = BuildConfig.VERSION_CODE,
+    val update: UpdateInfo? = null,
+    val updateStatus: String? = null,
+) {
+    fun list(kind: ListKind): TaskList = if (kind == ListKind.TODO) todo else groceries
+}
 
 class BoardViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -85,10 +114,12 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
     val state: StateFlow<BoardState> = _state.asStateFlow()
 
     private val todoMutex = Mutex()
+    private var listSwitchedAt = 0L
+    private val projectIds = mutableMapOf<String, String>() // "token|name" -> project id
+    private var sectionsFetchedAt = 0L
+    private var updating = false
     private val weatherMutex = Mutex()
     private val completing = mutableSetOf<String>()
-    private var cachedProjectKey: String? = null
-    private var cachedProjectId: String? = null
     private var calendarJob: Job? = null
     private var debounceJob: Job? = null
     private var lostJob: Job? = null
@@ -105,7 +136,7 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
                 lostJob?.cancel()
                 // Connection is back: pull fresh data. A successful fetch clears the warning.
                 withContext(Dispatchers.IO) { runCatching { calendarRepo.requestSync() } }
-                refreshTodos()
+                refreshLists()
                 refreshWeather()
             }
         }
@@ -129,18 +160,37 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { todoLoop() }
         viewModelScope.launch { weatherLoop() }
         viewModelScope.launch { flashLoop() }
+        viewModelScope.launch { updateLoop() }
+        viewModelScope.launch {
+            Updater.installerMessages.collect { msg ->
+                if (msg != null) {
+                    updating = false
+                    _state.update { it.copy(updateStatus = msg) }
+                    Updater.installerMessages.value = null
+                }
+            }
+        }
     }
 
     private fun initialState(app: Application): BoardState {
-        // Show the last saved list and forecast straight away, even before the first sync.
-        val saved = prefs.loadTasks()
+        // Show the last saved lists and forecast straight away, even before the first sync.
+        fun cached(kind: ListKind): TaskList {
+            val saved = prefs.loadTasks(kind.key)
+            return TaskList(
+                tasks = saved?.first?.let { orderTasks(it) } ?: emptyList(),
+                sections = prefs.loadSections(kind.key),
+                lastSync = saved?.second?.takeIf { it > 0 }?.let { millisToTime(it) },
+            )
+        }
         return BoardState(
             mode = prefs.mode,
             textScale = prefs.textScale,
             use24h = DateFormat.is24HourFormat(app),
             hasCalendarPermission = hasCalendarPermission(),
-            tasks = saved?.first?.let { orderTasks(it) } ?: emptyList(),
-            lastTodoSync = saved?.second?.takeIf { it > 0 }?.let { millisToTime(it) },
+            todo = cached(ListKind.TODO),
+            groceries = cached(ListKind.GROCERIES),
+            groceriesEnabled = prefs.groceriesProject.isNotBlank(),
+            staples = prefs.staples,
             weather = prefs.loadWeather(),
             weatherPlace = prefs.cachedPlace(prefs.weatherPlace)?.label,
         )
@@ -158,7 +208,7 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(use24h = DateFormat.is24HourFormat(getApplication<Application>())) }
         registerObserver()
         reloadCalendar()
-        viewModelScope.launch { refreshTodos() }
+        viewModelScope.launch { refreshLists() }
     }
 
     fun onPermissionResult() {
@@ -177,9 +227,15 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
     fun manualRefresh() {
         viewModelScope.launch(Dispatchers.IO) { runCatching { calendarRepo.requestSync() } }
         reloadCalendar()
-        viewModelScope.launch { refreshTodos() }
+        viewModelScope.launch { refreshLists() }
         viewModelScope.launch { refreshWeather() }
+        viewModelScope.launch { checkForUpdate(manual = false) }
         flash()
+    }
+
+    fun setActiveList(kind: ListKind) {
+        listSwitchedAt = System.currentTimeMillis()
+        _state.update { it.copy(activeList = kind) }
     }
 
     fun completeTask(id: String) {
@@ -194,19 +250,32 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
                 throw e
             } catch (e: Exception) {
                 if (isNetworkProblem(e)) markOffline()
-                _state.update { it.copy(todoError = "Couldn't tick that off: ${e.message}") }
+                val msg = "Couldn't tick that off: ${e.message}"
+                _state.update {
+                    if (it.activeList == ListKind.TODO) it.copy(todo = it.todo.copy(error = msg))
+                    else it.copy(groceries = it.groceries.copy(error = msg))
+                }
             }
             completing.remove(id)
-            refreshTodos()
+            refreshLists()
             _state.update { it.copy(completingIds = completing.toSet()) }
         }
     }
 
-    /** Adds an item from the Boox keyboard. [onResult] gets null on success, or a message to show. */
-    fun addTask(text: String, onResult: (String?) -> Unit) {
+    /**
+     * Adds an item to [kind]'s Todoist project from the Boox. [onResult] gets null on success,
+     * or a message to show.
+     */
+    fun addTask(kind: ListKind, text: String, onResult: (String?) -> Unit) {
         val content = text.trim()
         if (content.isEmpty()) {
             onResult("Type something to add.")
+            return
+        }
+        if (kind == ListKind.GROCERIES) listSwitchedAt = System.currentTimeMillis()
+        val already = _state.value.list(kind).tasks.any { it.task.content.equals(content, ignoreCase = true) }
+        if (already) {
+            onResult("$content is already on the list.")
             return
         }
         viewModelScope.launch {
@@ -217,15 +286,15 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
                     return@launch
                 }
                 val client = TodoistClient(token)
-                val projectId = resolveProjectId(client)
+                val projectId = resolveProjectId(client, kind)
                 if (projectId == null) {
-                    onResult("No matching Todoist project. Check the project name in Settings.")
+                    onResult("No matching Todoist project. Check the project names in Settings.")
                     return@launch
                 }
                 client.addTask(content, projectId)
                 markOnline()
                 onResult(null)
-                refreshTodos()
+                refreshLists()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -241,13 +310,93 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
 
     fun currentToken(): String = prefs.todoistToken
     fun currentProject(): String = prefs.todoistProject
+    fun currentGroceriesProject(): String = prefs.groceriesProject
+    fun currentStaples(): String = prefs.staples.joinToString(", ")
     fun currentWeatherPlace(): String = prefs.weatherPlace
 
-    fun saveTodoist(token: String, project: String) {
+    fun saveTodoist(token: String, project: String, groceriesProject: String, staples: String) {
         if (token.trim() != prefs.todoistToken) prefs.todoistToken = token
         if (project.trim() != prefs.todoistProject) prefs.todoistProject = project
-        cachedProjectKey = null
-        viewModelScope.launch { refreshTodos() }
+        if (groceriesProject.trim() != prefs.groceriesProject) prefs.groceriesProject = groceriesProject
+        prefs.staples = staples.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        projectIds.clear()
+        sectionsFetchedAt = 0L
+        _state.update {
+            it.copy(
+                groceriesEnabled = prefs.groceriesProject.isNotBlank(),
+                staples = prefs.staples,
+                activeList = if (prefs.groceriesProject.isBlank()) ListKind.TODO else it.activeList,
+            )
+        }
+        viewModelScope.launch { refreshLists() }
+    }
+
+    // ---- app updates ----
+
+    /** Looks for a newer build on the GitHub Releases page. */
+    fun checkForUpdateNow() {
+        viewModelScope.launch { checkForUpdate(manual = true) }
+    }
+
+    private suspend fun checkForUpdate(manual: Boolean) {
+        if (BuildConfig.UPDATE_REPO.isBlank()) {
+            if (manual) _state.update { it.copy(updateStatus = "Updates only work on builds made by GitHub.") }
+            return
+        }
+        try {
+            val latest = Updater.latest(BuildConfig.UPDATE_REPO)
+            val newer = latest?.takeIf { it.build > BuildConfig.VERSION_CODE }
+            _state.update {
+                it.copy(
+                    update = newer,
+                    updateStatus = when {
+                        newer != null -> null
+                        manual -> "You're on the latest build."
+                        else -> it.updateStatus
+                    },
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (manual) _state.update { it.copy(updateStatus = "Couldn't check for updates: ${e.message}") }
+        }
+    }
+
+    /** Downloads the newer build and hands it to Android, which asks to confirm the update. */
+    fun installUpdate() {
+        val info = _state.value.update ?: return
+        if (updating) return
+        val app = getApplication<Application>()
+        if (!app.packageManager.canRequestPackageInstalls()) {
+            _state.update { it.copy(updateStatus = "Allow installs from Calendar View Box, then tap Update again.") }
+            runCatching {
+                app.startActivity(
+                    Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${app.packageName}"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+            return
+        }
+        updating = true
+        viewModelScope.launch {
+            try {
+                val apk = File(app.cacheDir, "updates/CalendarViewBox.apk")
+                _state.update { it.copy(updateStatus = "Downloading build ${info.build}...") }
+                Updater.download(info.apkUrl, apk) { pct ->
+                    _state.update { it.copy(updateStatus = "Downloading build ${info.build}... $pct%") }
+                }
+                _state.update { it.copy(updateStatus = "Installing. Tap Update when Android asks.") }
+                withContext(Dispatchers.IO) { Updater.install(app, apk) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (isNetworkProblem(e)) markOffline()
+                _state.update { it.copy(updateStatus = "Update failed: ${e.message}") }
+            } finally {
+                updating = false
+            }
+        }
     }
 
     fun saveWeatherPlace(place: String) {
@@ -369,39 +518,62 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- to-do ----
 
-    private suspend fun resolveProjectId(client: TodoistClient): String? {
-        val key = prefs.todoistToken + "|" + prefs.todoistProject
-        if (key == cachedProjectKey && cachedProjectId != null) return cachedProjectId
-        val id = client.findProjectId(prefs.todoistProject)
-        cachedProjectKey = if (id != null) key else null
-        cachedProjectId = id
+    private fun projectName(kind: ListKind): String =
+        if (kind == ListKind.TODO) prefs.todoistProject else prefs.groceriesProject
+
+    private suspend fun resolveProjectId(client: TodoistClient, kind: ListKind): String? {
+        val name = projectName(kind)
+        val key = prefs.todoistToken + "|" + kind.key + "|" + name
+        projectIds[key]?.let { return it }
+        val id = client.findProjectId(name, fallbackToShared = kind == ListKind.TODO) ?: return null
+        projectIds[key] = id
         return id
     }
 
-    private suspend fun refreshTodos(): Unit = todoMutex.withLock {
+    private suspend fun refreshLists(): Unit = todoMutex.withLock {
         val token = prefs.todoistToken
         if (token.isBlank()) {
-            _state.update { it.copy(todoError = "Add the Todoist token in Settings.") }
+            _state.update { it.copy(todo = it.todo.copy(error = "Add the Todoist token in Settings.")) }
             return@withLock
         }
+        val client = TodoistClient(token)
+        refreshList(client, ListKind.TODO)
+        if (prefs.groceriesProject.isNotBlank()) refreshList(client, ListKind.GROCERIES)
+    }
+
+    private suspend fun refreshList(client: TodoistClient, kind: ListKind) {
+        fun setList(change: (TaskList) -> TaskList) = _state.update {
+            if (kind == ListKind.TODO) it.copy(todo = change(it.todo)) else it.copy(groceries = change(it.groceries))
+        }
         try {
-            val client = TodoistClient(token)
-            val projectId = resolveProjectId(client)
+            val projectId = resolveProjectId(client, kind)
             if (projectId == null) {
-                val label = prefs.todoistProject.ifBlank { "a shared project" }
-                _state.update { it.copy(todoError = "No Todoist project called \"$label\" on this account.") }
+                val label = projectName(kind).ifBlank { "a shared project" }
+                setList { it.copy(error = "No Todoist project called \"$label\" on this account.") }
                 markOnline()
-                return@withLock
+                return
             }
             val tasks = client.tasks(projectId)
+            var sections = _state.value.list(kind).sections
+            if (kind == ListKind.GROCERIES) {
+                // Sections rarely change: fetch them every 10 minutes, or when an unknown one appears.
+                val known = sections.map { it.id }.toSet()
+                val unknown = tasks.any { it.sectionId != null && it.sectionId !in known }
+                if (unknown || System.currentTimeMillis() - sectionsFetchedAt > 10 * 60_000L) {
+                    sections = client.sections(projectId).sortedBy { it.order }
+                    sectionsFetchedAt = System.currentTimeMillis()
+                    prefs.saveSections(kind.key, sections)
+                }
+            }
             val now = System.currentTimeMillis()
-            prefs.saveTasks(tasks, now)
+            prefs.saveTasks(kind.key, tasks, now)
             markOnline()
-            _state.update {
+            setList {
                 it.copy(
                     tasks = orderTasks(tasks.filter { t -> t.id !in completing }),
-                    todoError = null,
-                    lastTodoSync = millisToTime(now),
+                    sections = sections,
+                    error = null,
+                    lastSync = millisToTime(now),
                 )
             }
         } catch (e: CancellationException) {
@@ -411,7 +583,7 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
                 markOffline()
             } else {
                 markOnline() // Todoist answered, so the connection itself is fine
-                _state.update { it.copy(todoError = "To-do sync failed: ${e.message}") }
+                setList { it.copy(error = "Sync failed: ${e.message}") }
             }
         }
     }
@@ -463,9 +635,15 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
             _state.update { it.copy(today = now.toLocalDate(), now = now.toLocalTime().withSecond(0).withNano(0)) }
             if (dayChanged) {
                 reloadCalendar()
-                refreshTodos()
+                refreshLists()
                 refreshWeather()
                 flash()
+            }
+            // Someone left Groceries open: go back to To do after a few minutes.
+            if (_state.value.activeList != ListKind.TODO &&
+                System.currentTimeMillis() - listSwitchedAt > LIST_RETURN_MS
+            ) {
+                _state.update { it.copy(activeList = ListKind.TODO) }
             }
             val msToNextMinute = 60_000 - (System.currentTimeMillis() % 60_000)
             delay(msToNextMinute + 100)
@@ -474,8 +652,16 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun todoLoop() {
         while (viewModelScope.isActive) {
-            refreshTodos()
-            delay(30_000L) // one small request each time
+            refreshLists()
+            delay(30_000L) // a couple of small requests each time
+        }
+    }
+
+    private suspend fun updateLoop() {
+        delay(15_000)
+        while (viewModelScope.isActive) {
+            checkForUpdate(manual = false)
+            delay(6 * 60 * 60_000L)
         }
     }
 
