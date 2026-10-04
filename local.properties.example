@@ -1,0 +1,6 @@
+# Android Studio creates local.properties and adds sdk.dir for you.
+# Add these lines to that file (never commit it):
+todoist.token=PASTE_THE_DISPLAY_ACCOUNT_TOKEN_HERE
+todoist.project=Home
+# Optional. Town or suburb for the weather strip; can also be set in the app.
+weather.place=Sydney, NSW

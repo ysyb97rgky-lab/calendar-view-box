@@ -1,0 +1,151 @@
+package com.calendarviewbox.data
+
+import android.content.Context
+import com.calendarviewbox.BuildConfig
+import org.json.JSONArray
+import org.json.JSONObject
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
+
+enum class CalendarMode(val label: String) {
+    WEEK("Week"),
+    TWO_WEEKS("2 weeks"),
+    MONTH("Month"),
+    AGENDA("Agenda"),
+}
+
+fun mondayOf(date: LocalDate): LocalDate =
+    date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+
+/** First Monday shown in the month grid, and how many week rows the month needs. */
+fun monthGrid(today: LocalDate): Pair<LocalDate, Int> {
+    val first = today.withDayOfMonth(1)
+    val start = mondayOf(first)
+    val days = ChronoUnit.DAYS.between(start, first).toInt() + today.lengthOfMonth()
+    return start to (days + 6) / 7
+}
+
+/**
+ * First day of the Week view. Monday on weekdays. On Saturday and Sunday the week rolls
+ * forward to start today, so the coming week is in view and today's plans stay visible.
+ */
+fun weekStart(today: LocalDate): LocalDate = when (today.dayOfWeek) {
+    DayOfWeek.SATURDAY, DayOfWeek.SUNDAY -> today
+    else -> mondayOf(today)
+}
+
+/** Date range [from, toExclusive) each view needs events for. */
+fun CalendarMode.range(today: LocalDate): Pair<LocalDate, LocalDate> = when (this) {
+    CalendarMode.WEEK -> weekStart(today).let { it to it.plusDays(7) }
+    CalendarMode.TWO_WEEKS -> mondayOf(today).let { it to it.plusDays(14) }
+    CalendarMode.MONTH -> monthGrid(today).let { (start, weeks) -> start to start.plusDays(weeks * 7L) }
+    CalendarMode.AGENDA -> today to today.plusDays(14)
+}
+
+class Prefs(context: Context) {
+    private val sp = context.getSharedPreferences("board", Context.MODE_PRIVATE)
+
+    /** Falls back to the value in local.properties when nothing was typed in Settings. */
+    var todoistToken: String
+        get() = sp.getString("todoist_token", null)?.takeIf { it.isNotBlank() } ?: BuildConfig.TODOIST_TOKEN
+        set(value) = sp.edit().putString("todoist_token", value.trim()).apply()
+
+    var todoistProject: String
+        get() = sp.getString("todoist_project", null) ?: BuildConfig.TODOIST_PROJECT
+        set(value) = sp.edit().putString("todoist_project", value.trim()).apply()
+
+    var mode: CalendarMode
+        get() = runCatching { CalendarMode.valueOf(sp.getString("mode", null) ?: "WEEK") }
+            .getOrDefault(CalendarMode.WEEK)
+        set(value) = sp.edit().putString("mode", value.name).apply()
+
+    /** False until the user ticks or unticks a calendar. Until then every synced calendar shows. */
+    var calendarsConfigured: Boolean
+        get() = sp.getBoolean("calendars_configured", false)
+        set(value) = sp.edit().putBoolean("calendars_configured", value).apply()
+
+    var selectedCalendarIds: Set<Long>
+        get() = sp.getStringSet("calendars", emptySet()).orEmpty().mapNotNull { it.toLongOrNull() }.toSet()
+        set(value) = sp.edit().putStringSet("calendars", value.map { it.toString() }.toSet()).apply()
+
+    fun styleFor(calendarId: Long): Int? = sp.getInt("style_$calendarId", -1).takeIf { it >= 0 }
+    fun setStyle(calendarId: Long, style: Int) = sp.edit().putInt("style_$calendarId", style).apply()
+
+    var textScale: Float
+        get() = sp.getFloat("text_scale", 1f)
+        set(value) = sp.edit().putFloat("text_scale", value).apply()
+
+    // ---- weather ----
+
+    var weatherPlace: String
+        get() = sp.getString("weather_place", null)?.takeIf { it.isNotBlank() }
+            ?: BuildConfig.WEATHER_PLACE.ifBlank { DEFAULT_WEATHER_PLACE }
+        set(value) = sp.edit().putString("weather_place", value.trim()).apply()
+
+    /** The place found for the typed text, so the search only runs when the text changes. */
+    fun cachedPlace(query: String): Place? {
+        if (sp.getString("place_query", null) != query) return null
+        val name = sp.getString("place_name", null) ?: return null
+        return Place(
+            name = name,
+            region = sp.getString("place_region", "") ?: "",
+            lat = sp.getString("place_lat", null)?.toDoubleOrNull() ?: return null,
+            lon = sp.getString("place_lon", null)?.toDoubleOrNull() ?: return null,
+        )
+    }
+
+    fun savePlace(query: String, place: Place) = sp.edit()
+        .putString("place_query", query)
+        .putString("place_name", place.name)
+        .putString("place_region", place.region)
+        .putString("place_lat", place.lat.toString())
+        .putString("place_lon", place.lon.toString())
+        .apply()
+
+    fun saveWeather(w: Weather) = sp.edit().putString("weather_json", WeatherClient.toJson(w)).apply()
+    fun loadWeather(): Weather? = sp.getString("weather_json", null)?.let { WeatherClient.fromJson(it) }
+
+    // ---- last good to-do list, shown after a restart while offline ----
+
+    fun saveTasks(tasks: List<TodoTask>, at: Long) {
+        val arr = JSONArray()
+        tasks.forEach { t ->
+            arr.put(
+                JSONObject()
+                    .put("id", t.id)
+                    .put("content", t.content)
+                    .put("parent", t.parentId ?: JSONObject.NULL)
+                    .put("order", t.order)
+                    .put("due", t.due?.toString() ?: JSONObject.NULL)
+                    .put("time", t.dueTime?.toString() ?: JSONObject.NULL)
+                    .put("recurring", t.isRecurring)
+            )
+        }
+        sp.edit().putString("tasks_json", arr.toString()).putLong("tasks_at", at).apply()
+    }
+
+    fun loadTasks(): Pair<List<TodoTask>, Long>? = runCatching {
+        val raw = sp.getString("tasks_json", null) ?: return null
+        val arr = JSONArray(raw)
+        val tasks = (0 until arr.length()).map { i ->
+            val o = arr.getJSONObject(i)
+            TodoTask(
+                id = o.getString("id"),
+                content = o.getString("content"),
+                parentId = if (o.isNull("parent")) null else o.getString("parent"),
+                order = o.optInt("order"),
+                due = if (o.isNull("due")) null else LocalDate.parse(o.getString("due")),
+                dueTime = if (o.isNull("time")) null else LocalTime.parse(o.getString("time")),
+                isRecurring = o.optBoolean("recurring"),
+            )
+        }
+        tasks to sp.getLong("tasks_at", 0L)
+    }.getOrNull()
+
+    companion object {
+        const val DEFAULT_WEATHER_PLACE = "Sydney, NSW"
+    }
+}
