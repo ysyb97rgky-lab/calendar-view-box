@@ -98,6 +98,10 @@ fun App(
                         onOpenAndroidSettings = onOpenAndroidSettings,
                         onAddAccount = onAddAccount,
                         onManageAccounts = onManageAccounts,
+                        onEditDinner = { day ->
+                            showSettings = false
+                            openDay = day
+                        },
                     )
                 } else {
                     // Back does nothing on the board, so a stray tap can't close it.
@@ -113,7 +117,7 @@ fun App(
                     )
                     openDay?.let { day ->
                         BackHandler { openDay = null; vm.panelClosed() }
-                        DayDetailOverlay(day, state, onClose = { openDay = null; vm.panelClosed() })
+                        DayDetailOverlay(day, state, vm, onClose = { openDay = null; vm.panelClosed() })
                     }
                     if (adding) {
                         BackHandler { adding = false; vm.panelClosed() }
@@ -158,7 +162,7 @@ private fun Board(
                 when {
                     !state.hasCalendarPermission -> PermissionPrompt(onRequestPermission)
                     state.calendars.isEmpty() || state.shownCalendarIds.isEmpty() -> NoCalendarsPrompt(state, onAddAccount)
-                    else -> CalendarArea(state, onOpenDay)
+                    else -> CalendarArea(state, onOpenDay, onTickChore = { vm.toggleChore(it) })
                 }
             }
         }

@@ -17,7 +17,13 @@ import android.text.format.DateFormat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.calendarviewbox.data.COOK_ANYONE
 import com.calendarviewbox.data.CalendarInfo
+import com.calendarviewbox.data.Chore
+import com.calendarviewbox.data.DinnerPlan
+import com.calendarviewbox.data.Household
+import com.calendarviewbox.data.MealCount
+import com.calendarviewbox.data.Person
 import com.calendarviewbox.data.CalendarMode
 import com.calendarviewbox.data.CalendarRepository
 import com.calendarviewbox.data.EventItem
@@ -102,7 +108,13 @@ data class BoardState(
     val updateStatus: String? = null,
     /** Shown in Settings when adding a calendar account can't go ahead. */
     val accountMessage: String? = null,
+    val household: List<Person> = emptyList(),
+    val chores: List<Chore> = emptyList(),
+    val dinners: List<DinnerPlan> = emptyList(),
+    /** Meals used before, most used first, for one-tap picks. */
+    val recentMeals: List<String> = emptyList(),
 ) {
+    fun person(id: String?): Person? = household.firstOrNull { it.id == id }
     fun list(kind: ListKind): TaskList = if (kind == ListKind.TODO) todo else groceries
 }
 
@@ -184,6 +196,10 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
             groceries = cached(ListKind.GROCERIES),
             groceriesEnabled = prefs.groceriesProject.isNotBlank(),
             staples = prefs.staples,
+            household = prefs.people,
+            chores = prefs.chores,
+            dinners = prefs.dinners,
+            recentMeals = recentMealNames(prefs.meals),
             weather = prefs.loadWeather(),
             weatherPlace = prefs.cachedPlace(prefs.weatherPlace)?.label,
         )
@@ -331,6 +347,148 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch { refreshLists() }
     }
+
+    // ---- household: people ----
+
+    fun addPerson() {
+        val people = _state.value.household
+        val person = Person(Household.newId(), "Person ${people.size + 1}", people.size % STYLE_COUNT)
+        savePeople(people + person)
+    }
+
+    fun renamePerson(id: String, name: String) {
+        savePeople(_state.value.household.map { if (it.id == id) it.copy(name = name) else it })
+    }
+
+    fun cyclePersonStyle(id: String) {
+        savePeople(_state.value.household.map { if (it.id == id) it.copy(style = (it.style + 1) % STYLE_COUNT) else it })
+    }
+
+    /** Removes someone and takes them out of every chore rotation and cooking turn. */
+    fun removePerson(id: String) {
+        val st = _state.value
+        if (st.household.size <= 1) return
+        savePeople(st.household.filterNot { it.id == id })
+        saveChores(st.chores.map { c ->
+            val idx = c.people.indexOf(id)
+            if (idx < 0) c else {
+                val remaining = c.people - id
+                val next = when {
+                    remaining.isEmpty() -> 0
+                    c.nextIndex > idx -> c.nextIndex - 1
+                    else -> c.nextIndex
+                }
+                c.copy(people = remaining, nextIndex = if (remaining.isEmpty()) 0 else Math.floorMod(next, remaining.size))
+            }
+        })
+        saveDinners(st.dinners.map { p ->
+            p.copy(cook = if (p.cook == id) COOK_ANYONE else p.cook, turns = p.turns - id)
+        })
+    }
+
+    private fun savePeople(people: List<Person>) {
+        prefs.people = people
+        _state.update { it.copy(household = people) }
+    }
+
+    // ---- household: chores ----
+
+    /** Creates a chore when [id] is null, otherwise updates it. */
+    fun saveChore(id: String?, name: String, days: Set<java.time.DayOfWeek>, people: List<String>, nextPersonId: String?) {
+        val cleanName = name.trim()
+        if (cleanName.isEmpty() || people.isEmpty()) return
+        val next = people.indexOf(nextPersonId).coerceAtLeast(0)
+        val chores = _state.value.chores
+        val updated = if (id == null) {
+            chores + Chore(Household.newId(), cleanName, days, people, next, LocalDate.now())
+        } else {
+            chores.map { if (it.id == id) it.copy(name = cleanName, days = days, people = people, nextIndex = next) else it }
+        }
+        saveChores(updated)
+    }
+
+    fun deleteChore(id: String) = saveChores(_state.value.chores.filterNot { it.id == id })
+
+    /** Ticks a chore off (by [doerId], or whoever's turn it was), or unticks it if already done today. */
+    fun toggleChore(id: String, doerId: String? = null) {
+        val today = LocalDate.now()
+        saveChores(_state.value.chores.map { c ->
+            when {
+                c.id != id -> c
+                c.lastDone == today && doerId == null -> Household.undo(c)
+                // Re-recording who did it today: undo the first tick so turns only move once.
+                c.lastDone == today -> Household.complete(Household.undo(c), doerId, today, System.currentTimeMillis())
+                else -> Household.complete(c, doerId, today, System.currentTimeMillis())
+            }
+        })
+    }
+
+    private fun saveChores(chores: List<Chore>) {
+        prefs.chores = chores
+        _state.update { it.copy(chores = chores) }
+    }
+
+    // ---- household: dinners ----
+
+    /**
+     * Plans [meal] on [date]. With [repeatWeeks] of 0 it's for that day only (and replaces any repeat
+     * there); otherwise it repeats every [repeatWeeks] weeks on that weekday.
+     */
+    fun saveDinner(date: LocalDate, meal: String, cook: String, repeatWeeks: Int) {
+        val cleanMeal = meal.trim()
+        if (cleanMeal.isEmpty()) return
+        val turns = _state.value.household.map { it.id }
+        // Any one-off for this day is replaced by what's saved now.
+        val plans = _state.value.dinners.filterNot { it.repeatWeeks == 0 && it.start == date }.toMutableList()
+        val underlying = Household.dinnerFor(date, plans)?.plan
+        if (repeatWeeks == 0) {
+            plans += DinnerPlan(Household.newId(), cleanMeal, cook, 0, date, turns)
+        } else if (underlying != null && underlying.repeatWeeks > 0) {
+            val samePattern = underlying.repeatWeeks == repeatWeeks
+            val i = plans.indexOfFirst { it.id == underlying.id }
+            plans[i] = underlying.copy(
+                meal = cleanMeal,
+                cook = cook,
+                repeatWeeks = repeatWeeks,
+                start = if (samePattern) underlying.start else date,
+                turns = turns,
+                skips = underlying.skips - date,
+            )
+        } else {
+            plans += DinnerPlan(Household.newId(), cleanMeal, cook, repeatWeeks, date, turns)
+        }
+        saveDinners(plans)
+        rememberMeal(cleanMeal)
+    }
+
+    /** Clears dinner for one day: deletes a one-off, or skips a repeat on that day only. */
+    fun skipDinner(date: LocalDate) {
+        val plans = _state.value.dinners.filterNot { it.repeatWeeks == 0 && it.start == date }
+        val underlying = Household.dinnerFor(date, plans)?.plan
+        saveDinners(plans.map { if (it.id == underlying?.id) it.copy(skips = it.skips + date) else it })
+    }
+
+    fun deleteDinner(id: String) = saveDinners(_state.value.dinners.filterNot { it.id == id })
+
+    private fun saveDinners(plans: List<DinnerPlan>) {
+        prefs.dinners = plans
+        _state.update { it.copy(dinners = plans) }
+    }
+
+    private fun rememberMeal(meal: String) {
+        val meals = prefs.meals.toMutableList()
+        val i = meals.indexOfFirst { it.name.equals(meal, ignoreCase = true) }
+        val now = System.currentTimeMillis()
+        if (i >= 0) meals[i] = meals[i].copy(count = meals[i].count + 1, lastUsed = now)
+        else meals += MealCount(meal, 1, now)
+        prefs.meals = meals
+        _state.update { it.copy(recentMeals = recentMealNames(meals)) }
+    }
+
+    private fun recentMealNames(meals: List<MealCount>): List<String> =
+        meals.sortedWith(compareByDescending<MealCount> { it.count }.thenByDescending { it.lastUsed })
+            .take(10)
+            .map { it.name }
 
     // ---- app updates ----
 

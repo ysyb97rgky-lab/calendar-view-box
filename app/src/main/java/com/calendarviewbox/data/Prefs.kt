@@ -169,6 +169,24 @@ class Prefs(context: Context) {
         }
     }.getOrDefault(emptyList())
 
+    // ---- household: people, chores, dinners (kept on this device only) ----
+
+    var people: List<Person>
+        get() = Household.peopleFromJson(sp.getString("people_json", null)) ?: Household.defaultPeople
+        set(value) = sp.edit().putString("people_json", Household.peopleToJson(value)).apply()
+
+    var chores: List<Chore>
+        get() = Household.choresFromJson(sp.getString("chores_json", null))
+        set(value) = sp.edit().putString("chores_json", Household.choresToJson(value)).apply()
+
+    var dinners: List<DinnerPlan>
+        get() = Household.dinnersFromJson(sp.getString("dinners_json", null))
+        set(value) = sp.edit().putString("dinners_json", Household.dinnersToJson(value)).apply()
+
+    var meals: List<MealCount>
+        get() = Household.mealsFromJson(sp.getString("meals_json", null))
+        set(value) = sp.edit().putString("meals_json", Household.mealsToJson(value)).apply()
+
     companion object {
         const val DEFAULT_WEATHER_PLACE = "Sydney, NSW"
         const val DEFAULT_GROCERIES_PROJECT = "Groceries"

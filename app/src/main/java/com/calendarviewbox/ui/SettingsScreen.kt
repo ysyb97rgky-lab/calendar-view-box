@@ -1,6 +1,12 @@
 package com.calendarviewbox.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +39,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.calendarviewbox.BoardState
 import com.calendarviewbox.BoardViewModel
+import com.calendarviewbox.data.COOK_ANYONE
+import com.calendarviewbox.data.COOK_TURNS
+import com.calendarviewbox.data.Chore
+import com.calendarviewbox.data.DinnerPlan
+import com.calendarviewbox.data.Household
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.util.Locale
 
 private val textSizes = listOf(
     "Small" to 0.85f,
@@ -49,6 +65,7 @@ fun SettingsScreen(
     onOpenAndroidSettings: () -> Unit,
     onAddAccount: (googleOnly: Boolean) -> Unit,
     onManageAccounts: () -> Unit,
+    onEditDinner: (LocalDate) -> Unit,
 ) {
     var token by remember { mutableStateOf(vm.currentToken()) }
     var project by remember { mutableStateOf(vm.currentProject()) }
@@ -56,6 +73,10 @@ fun SettingsScreen(
     var groceries by remember { mutableStateOf(vm.currentGroceriesProject()) }
     var staples by remember { mutableStateOf(vm.currentStaples()) }
     var showToken by remember { mutableStateOf(false) }
+    val saveFields: () -> Unit = {
+        vm.saveTodoist(token, project, groceries, staples)
+        vm.saveWeatherPlace(place)
+    }
 
     Column(
         Modifier
@@ -74,8 +95,7 @@ fun SettingsScreen(
             )
             Spacer(Modifier.weight(1f))
             InkButton("Save and close", selected = true) {
-                vm.saveTodoist(token, project, groceries, staples)
-                vm.saveWeatherPlace(place)
+                saveFields()
                 onClose()
             }
         }
@@ -187,6 +207,74 @@ fun SettingsScreen(
             }
         }
 
+        Section("Household")
+        Hint("Names used for chores and cooking. Tap a marker to change it; matching someone's calendar marker keeps things consistent.")
+        state.household.forEach { person ->
+            Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .clickable(interactionSource = null, indication = null) { vm.cyclePersonStyle(person.id) }
+                        .padding(10.dp)
+                ) {
+                    Marker(styleOf(person.style), 28.dp)
+                }
+                var name by remember(person.id) { mutableStateOf(person.name) }
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = {
+                        name = it
+                        if (it.isNotBlank()) vm.renamePerson(person.id, it.trim())
+                    },
+                    singleLine = true,
+                    modifier = Modifier.width(320.dp),
+                )
+                if (state.household.size > 1) {
+                    Spacer(Modifier.width(12.dp))
+                    InkButton("Remove", small = true) { vm.removePerson(person.id) }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        InkButton("Add person", onClick = vm::addPerson)
+
+        Section("Chores")
+        ChoresSettings(state, vm)
+
+        Section("Repeating dinners")
+        val repeating = state.dinners.filter { it.repeatWeeks > 0 }
+        if (repeating.isEmpty()) {
+            Hint("None yet. Tap a day on the board, plan a dinner, and choose how often it repeats.")
+        }
+        repeating.forEach { plan ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .drawBehind {
+                        drawLine(Ink.LightGrey, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
+                    }
+                    .padding(vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(plan.meal, fontSize = 21.sp, fontWeight = FontWeight.Bold, color = Ink.Black, modifier = Modifier.width(240.dp))
+                Text(repeatText(plan), fontSize = 18.sp, color = Ink.DarkGrey, modifier = Modifier.width(280.dp))
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Cook: ", fontSize = 18.sp, color = Ink.DarkGrey)
+                    when (plan.cook) {
+                        COOK_TURNS -> Text("takes turns", fontSize = 18.sp, color = Ink.DarkGrey)
+                        COOK_ANYONE -> PersonPill(null, null)
+                        else -> state.person(plan.cook).let { PersonPill(it?.name, it?.style) }
+                    }
+                }
+                InkButton("Edit", small = true) {
+                    saveFields()
+                    onEditDinner(Household.nextOccurrence(plan, state.today))
+                }
+                Spacer(Modifier.width(10.dp))
+                InkButton("Delete", small = true) { vm.deleteDinner(plan.id) }
+            }
+        }
+        Hint("Planning a different meal on one day replaces the repeat for that day only.")
+
         Section("Text size")
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             textSizes.forEach { (label, scale) ->
@@ -224,4 +312,162 @@ private fun Section(title: String) {
 @Composable
 private fun Hint(text: String) {
     Text(text, fontSize = 18.sp, color = Ink.DarkGrey, modifier = Modifier.padding(vertical = 4.dp))
+}
+
+
+private val weekdayShortFmt = DateTimeFormatter.ofPattern("EEE")
+
+private fun repeatText(plan: DinnerPlan): String {
+    val day = plan.start.format(weekdayShortFmt)
+    return when (plan.repeatWeeks) {
+        1 -> "Every week, $day"
+        else -> "Every ${plan.repeatWeeks} weeks, $day"
+    }
+}
+
+/** "Every day", "Wednesdays", "Mon and Thu", "Mon, Wed and Fri". */
+fun daysText(days: Set<DayOfWeek>): String {
+    if (days.isEmpty() || days.size == 7) return "Every day"
+    val sorted = days.sortedBy { it.value }
+    if (sorted.size == 1) return sorted[0].getDisplayName(TextStyle.FULL, Locale.getDefault()) + "s"
+    val names = sorted.map { it.getDisplayName(TextStyle.SHORT, Locale.getDefault()) }
+    return names.dropLast(1).joinToString(", ") + " and " + names.last()
+}
+
+@Composable
+private fun ChoresSettings(state: BoardState, vm: BoardViewModel) {
+    var editing by remember { mutableStateOf<String?>(null) } // a chore id, or NEW_CHORE
+    Row(Modifier.fillMaxWidth()) {
+        Column(Modifier.weight(1f)) {
+            if (state.chores.isEmpty()) {
+                Hint("No chores yet. Add one, pick its days and who shares it.")
+            }
+            state.chores.forEach { chore ->
+                val selected = editing == chore.id
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(if (selected) Ink.LightGrey.copy(alpha = 0.35f) else Ink.White)
+                        .clickable(interactionSource = null, indication = null) { editing = chore.id }
+                        .drawBehind {
+                            drawLine(Ink.LightGrey, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
+                        }
+                        .padding(vertical = 12.dp, horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(chore.name, fontSize = 21.sp, fontWeight = FontWeight.Bold, color = Ink.Black, modifier = Modifier.width(190.dp))
+                    Text(daysText(chore.days), fontSize = 18.sp, color = Ink.DarkGrey, modifier = Modifier.width(200.dp))
+                    Text(
+                        chore.people.mapNotNull { state.person(it)?.name }.joinToString(" and "),
+                        fontSize = 18.sp,
+                        color = Ink.DarkGrey,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text("Next: ", fontSize = 16.sp, color = Ink.DarkGrey)
+                    val next = state.person(chore.personAt(chore.nextIndex))
+                    PersonPill(next?.name, next?.style)
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            InkButton("Add chore") { editing = NEW_CHORE }
+        }
+        editing?.let { id ->
+            Spacer(Modifier.width(32.dp))
+            ChoreEditor(
+                chore = state.chores.firstOrNull { it.id == id },
+                state = state,
+                onSave = { name, days, people, next ->
+                    vm.saveChore(if (id == NEW_CHORE) null else id, name, days, people, next)
+                    editing = null
+                },
+                onDelete = {
+                    vm.deleteChore(id)
+                    editing = null
+                },
+                onCancel = { editing = null },
+            )
+        }
+    }
+}
+
+private const val NEW_CHORE = "new"
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ChoreEditor(
+    chore: Chore?,
+    state: BoardState,
+    onSave: (String, Set<DayOfWeek>, List<String>, String?) -> Unit,
+    onDelete: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val key = chore?.id ?: NEW_CHORE
+    var name by remember(key) { mutableStateOf(chore?.name ?: "") }
+    var days by remember(key) { mutableStateOf(chore?.days ?: emptySet()) }
+    var sharers by remember(key) { mutableStateOf(chore?.people ?: state.household.map { it.id }) }
+    var next by remember(key) { mutableStateOf(chore?.let { it.personAt(it.nextIndex) } ?: sharers.firstOrNull()) }
+    var problem by remember(key) { mutableStateOf<String?>(null) }
+
+    Column(
+        Modifier
+            .width(640.dp)
+            .border(2.dp, Ink.Black, RoundedCornerShape(12.dp))
+            .padding(horizontal = 26.dp, vertical = 22.dp)
+    ) {
+        Text(if (chore == null) "New chore" else "Edit chore", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Ink.Black)
+        Text("Name", fontSize = 17.sp, color = Ink.DarkGrey, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            singleLine = true,
+            placeholder = { Text("e.g. Bins") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text("Which days", fontSize = 17.sp, color = Ink.DarkGrey, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            InkChip("Every day", days.isEmpty()) { days = emptySet() }
+            DayOfWeek.values().forEach { d ->
+                InkChip(d.getDisplayName(TextStyle.SHORT, Locale.getDefault()), d in days) {
+                    days = if (d in days) days - d else days + d
+                }
+            }
+        }
+        Text("Who shares it", fontSize = 17.sp, color = Ink.DarkGrey, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            state.household.forEach { p ->
+                InkChip(p.name, p.id in sharers) {
+                    // Keep household order so turns go round predictably.
+                    sharers = if (p.id in sharers) sharers - p.id
+                    else state.household.map { it.id }.filter { it in sharers || it == p.id }
+                    if (next !in sharers) next = sharers.firstOrNull()
+                }
+            }
+        }
+        Text("Up next", fontSize = 17.sp, color = Ink.DarkGrey, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            sharers.forEach { id ->
+                val p = state.person(id)
+                InkChip(p?.name ?: "?", next == id) { next = id }
+            }
+        }
+        Text(
+            "Turns move on when it's ticked off on the board.",
+            fontSize = 16.sp,
+            color = Ink.DarkGrey,
+            modifier = Modifier.padding(top = 10.dp),
+        )
+        problem?.let { Text(it, fontSize = 17.sp, color = Ink.Black, modifier = Modifier.padding(top = 8.dp)) }
+        Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            InkButton("Save chore", selected = true) {
+                when {
+                    name.isBlank() -> problem = "Give it a name."
+                    sharers.isEmpty() -> problem = "Pick at least one person."
+                    else -> onSave(name, days, sharers, next)
+                }
+            }
+            if (chore != null) InkButton("Delete", onClick = onDelete)
+            InkButton("Cancel", onClick = onCancel)
+        }
+    }
 }

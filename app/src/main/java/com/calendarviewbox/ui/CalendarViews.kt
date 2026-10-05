@@ -21,6 +21,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.LaunchedEffect
@@ -41,12 +50,21 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.calendarviewbox.BoardState
+import com.calendarviewbox.BoardViewModel
+import com.calendarviewbox.data.COOK_ANYONE
+import com.calendarviewbox.data.COOK_TURNS
+import com.calendarviewbox.data.ChoreShown
+import com.calendarviewbox.data.ChoreState
+import com.calendarviewbox.data.DinnerShown
+import com.calendarviewbox.data.Household
 import com.calendarviewbox.data.CalendarMode
 import com.calendarviewbox.data.EventItem
 import com.calendarviewbox.data.monthGrid
 import com.calendarviewbox.data.range
 import kotlinx.coroutines.delay
 import java.time.Duration
+import java.time.Instant
+import java.time.ZoneId
 import java.time.LocalDateTime
 import java.time.LocalDate
 import java.time.YearMonth
@@ -59,13 +77,13 @@ private val dayMonthFmt = DateTimeFormatter.ofPattern("d MMM")
 private val agendaDayFmt = DateTimeFormatter.ofPattern("EEEE d MMMM")
 
 @Composable
-fun CalendarArea(state: BoardState, onOpenDay: (LocalDate) -> Unit) {
+fun CalendarArea(state: BoardState, onOpenDay: (LocalDate) -> Unit, onTickChore: (String) -> Unit) {
     when (state.mode) {
-        CalendarMode.WEEK -> DayRows(state.today, 7, state, onOpenDay, Modifier.fillMaxSize())
+        CalendarMode.WEEK -> DayRows(state.today, 7, state, onOpenDay, onTickChore, Modifier.fillMaxSize())
         CalendarMode.TWO_WEEKS -> Row(Modifier.fillMaxSize()) {
-            DayRows(state.today, 7, state, onOpenDay, Modifier.weight(1f).fillMaxHeight(), compact = true)
+            DayRows(state.today, 7, state, onOpenDay, onTickChore, Modifier.weight(1f).fillMaxHeight(), compact = true)
             Box(Modifier.padding(horizontal = 12.dp).width(1.dp).fillMaxHeight().background(Ink.Grey))
-            DayRows(state.today.plusDays(7), 7, state, onOpenDay, Modifier.weight(1f).fillMaxHeight(), compact = true)
+            DayRows(state.today.plusDays(7), 7, state, onOpenDay, onTickChore, Modifier.weight(1f).fillMaxHeight(), compact = true)
         }
         CalendarMode.MONTH -> {
             val (start, weeks) = monthGrid(state.today)
@@ -105,6 +123,7 @@ private fun DayRows(
     count: Int,
     state: BoardState,
     onOpenDay: (LocalDate) -> Unit,
+    onTickChore: (String) -> Unit,
     modifier: Modifier,
     compact: Boolean = false,
 ) {
@@ -121,6 +140,7 @@ private fun DayRows(
                 last = i == count - 1,
                 compact = compact,
                 onOpenDay = onOpenDay,
+                onTickChore = onTickChore,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             )
         }
@@ -137,9 +157,10 @@ private fun DayRow(
     last: Boolean,
     compact: Boolean,
     onOpenDay: (LocalDate) -> Unit,
+    onTickChore: (String) -> Unit,
     modifier: Modifier,
 ) {
-    val eventSize = if (compact) 20.sp else 24.sp
+    val eventSize = if (compact) 20.sp else 23.sp
     val numberSize = if (compact) 30.sp else 38.sp
     val lineGap = 12.dp
     val next = remember(events, state.now, date) { nextEvent(events, date, state) }
@@ -190,6 +211,113 @@ private fun DayRow(
             ) {
                 events.forEach { e -> EventChip(e, date, state, eventSize, isNext = e == next) }
             }
+        }
+        // Dinner and chores sit in their own column, once there's anything to show.
+        if (state.chores.isNotEmpty() || state.dinners.isNotEmpty()) {
+            SideColumn(
+                date = date,
+                state = state,
+                compact = compact,
+                onTick = onTickChore,
+                modifier = Modifier.width(if (compact) 200.dp else 290.dp).fillMaxHeight(),
+            )
+        }
+    }
+}
+
+private val shortWeekday = DateTimeFormatter.ofPattern("EEE")
+
+@Composable
+private fun SideColumn(
+    date: LocalDate,
+    state: BoardState,
+    compact: Boolean,
+    onTick: (String) -> Unit,
+    modifier: Modifier,
+) {
+    val dinner = remember(state.dinners, date) { Household.dinnerFor(date, state.dinners) }
+    // In 2 weeks the column is narrow, so it shows dinner only.
+    val chores = remember(state.chores, date, state.today, compact) {
+        if (compact) emptyList() else Household.choresFor(date, state.today, state.chores)
+    }
+    BoxWithConstraints(
+        modifier
+            .drawBehind { drawLine(Ink.LightGrey, Offset(0f, 0f), Offset(0f, size.height), 1.dp.toPx()) }
+            .padding(start = if (compact) 12.dp else 18.dp, top = 14.dp, bottom = 6.dp)
+    ) {
+        val lines = (maxHeight / 31.dp).toInt().coerceAtLeast(1)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            DinnerLine(dinner, state, compact)
+            val room = (lines - 1).coerceAtLeast(0)
+            val visible = if (chores.size > room) chores.take((room - 1).coerceAtLeast(0)) else chores
+            visible.forEach { ChoreLine(it, interactive = date == state.today, state = state, onTick = onTick) }
+            if (chores.size > visible.size) {
+                Text("+${chores.size - visible.size} more", fontSize = 16.sp, color = Ink.DarkGrey)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DinnerLine(dinner: DinnerShown?, state: BoardState, compact: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Dinner", fontSize = 15.sp, color = Ink.DarkGrey, modifier = Modifier.width(if (compact) 50.dp else 56.dp))
+        if (dinner == null) {
+            Text("Tap to plan", fontSize = 16.sp, color = Ink.Grey)
+        } else {
+            Text(
+                dinner.meal,
+                fontSize = if (compact) 17.sp else 19.sp,
+                fontWeight = FontWeight.Bold,
+                color = Ink.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Spacer(Modifier.width(8.dp))
+            val cook = state.person(dinner.cookId)
+            PersonPill(cook?.name, cook?.style)
+        }
+    }
+}
+
+@Composable
+private fun ChoreLine(c: ChoreShown, interactive: Boolean, state: BoardState, onTick: (String) -> Unit) {
+    val person = state.person(c.personId)
+    val done = c.state == ChoreState.DONE
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (interactive) {
+            Box(
+                Modifier
+                    .size(30.dp)
+                    .clickable(interactionSource = null, indication = null) { onTick(c.chore.id) },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(22.dp)
+                        .background(if (done) Ink.Black else Ink.White, CircleShape)
+                        .border(2.5.dp, Ink.Black, CircleShape)
+                )
+            }
+        } else {
+            Spacer(Modifier.width(30.dp))
+        }
+        Spacer(Modifier.width(6.dp))
+        Text(
+            c.chore.name,
+            fontSize = 19.sp,
+            color = if (done) Ink.Grey else Ink.Black,
+            textDecoration = if (done) TextDecoration.LineThrough else TextDecoration.None,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Spacer(Modifier.width(8.dp))
+        PersonPill(person?.name, person?.style)
+        if (c.state == ChoreState.OVERDUE && c.since != null) {
+            Spacer(Modifier.width(8.dp))
+            Text("from ${c.since.format(shortWeekday)}", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Ink.Black)
         }
     }
 }
@@ -281,20 +409,23 @@ private fun EventChip(e: EventItem, date: LocalDate, state: BoardState, size: Te
 
 private val detailTitleFmt = DateTimeFormatter.ofPattern("EEEE d MMMM")
 
-/** Everything on one day, with locations and notes. Returns to the board on its own after two minutes. */
+/**
+ * Everything on one day: events with locations and notes on the left, dinner and chores on the right.
+ * Returns to the board on its own after a few minutes.
+ */
 @Composable
-fun DayDetailOverlay(date: LocalDate, state: BoardState, onClose: () -> Unit) {
+fun DayDetailOverlay(date: LocalDate, state: BoardState, vm: BoardViewModel, onClose: () -> Unit) {
     val events = remember(state.events, date) { eventsByDay(state.events, date, 1)[date].orEmpty() }
     val due = state.todo.tasks.filter { it.task.due == date }
-    LaunchedEffect(date) {
-        delay(2 * 60_000L)
+    // Saving dinner or ticking a chore restarts the timer.
+    LaunchedEffect(date, state.dinners, state.chores) {
+        delay(3 * 60_000L)
         onClose()
     }
     Column(
         Modifier
             .fillMaxSize()
             .background(Ink.White)
-            .verticalScroll(rememberScrollState())
             .padding(horizontal = 48.dp, vertical = 36.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -315,26 +446,237 @@ fun DayDetailOverlay(date: LocalDate, state: BoardState, onClose: () -> Unit) {
         }
         Spacer(Modifier.height(16.dp))
         Box(Modifier.fillMaxWidth().height(3.dp).background(Ink.Black))
-        if (events.isEmpty()) {
-            Text("Nothing on.", fontSize = 26.sp, color = Ink.DarkGrey, modifier = Modifier.padding(top = 24.dp))
+        Row(Modifier.weight(1f).fillMaxWidth()) {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
+                    .padding(end = 36.dp)
+            ) {
+                if (events.isEmpty()) {
+                    Text("Nothing on.", fontSize = 26.sp, color = Ink.DarkGrey, modifier = Modifier.padding(top = 24.dp))
+                }
+                events.forEach { e -> DetailRow(e, date, state) }
+                if (due.isNotEmpty()) {
+                    Text(
+                        "Due on this day",
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Ink.Black,
+                        modifier = Modifier.padding(top = 32.dp, bottom = 8.dp),
+                    )
+                    due.forEach { row ->
+                        Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(24.dp).border(3.dp, Ink.Black, RoundedCornerShape(50)))
+                            Spacer(Modifier.width(14.dp))
+                            Text(row.task.content, fontSize = 24.sp, color = Ink.Black)
+                        }
+                    }
+                }
+            }
+            Box(Modifier.width(2.dp).fillMaxHeight().background(Ink.Black))
+            Column(
+                Modifier
+                    .width(620.dp)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = 36.dp, bottom = 24.dp)
+            ) {
+                DinnerEditor(date, state, vm)
+                Spacer(Modifier.height(34.dp))
+                ChoresPanel(date, state, vm)
+            }
         }
-        events.forEach { e -> DetailRow(e, date, state) }
-        if (due.isNotEmpty()) {
-            Text(
-                "Due on this day",
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-                color = Ink.Black,
-                modifier = Modifier.padding(top = 32.dp, bottom = 8.dp),
-            )
-            due.forEach { row ->
-                Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(24.dp).border(3.dp, Ink.Black, RoundedCornerShape(50)))
-                    Spacer(Modifier.width(14.dp))
-                    Text(row.task.content, fontSize = 24.sp, color = Ink.Black)
+    }
+}
+
+@Composable
+private fun FieldLabel(text: String) {
+    Text(text, fontSize = 17.sp, fontWeight = FontWeight.Medium, color = Ink.DarkGrey, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
+}
+
+@Composable
+private fun PanelHint(text: String) {
+    Text(text, fontSize = 16.sp, color = Ink.DarkGrey, modifier = Modifier.padding(top = 8.dp))
+}
+
+private val weekdayLongFmt = DateTimeFormatter.ofPattern("EEEE")
+private val dayMonthShortFmt = DateTimeFormatter.ofPattern("d MMM")
+
+private fun repeatHint(date: LocalDate, repeat: Int, cook: String, current: DinnerShown?, state: BoardState): String {
+    val start = if (current != null && repeat > 0 && current.plan.repeatWeeks == repeat) current.plan.start else date
+    val weekday = start.format(weekdayLongFmt)
+    val from = start.format(dayMonthShortFmt)
+    val pattern = when (repeat) {
+        0 -> "Just this day."
+        1 -> "Every $weekday, starting $from."
+        2 -> "Every second $weekday, starting $from."
+        else -> "Every fourth $weekday, starting $from."
+    }
+    val turns = when {
+        cook != COOK_TURNS -> ""
+        repeat == 0 -> " Taking turns only applies to repeating dinners."
+        else -> " Cooks take turns: " + state.household.joinToString(", ") { it.name } + "."
+    }
+    return pattern + turns
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DinnerEditor(date: LocalDate, state: BoardState, vm: BoardViewModel) {
+    val current = remember(state.dinners, date) { Household.dinnerFor(date, state.dinners) }
+    var meal by remember(date, current) { mutableStateOf(current?.meal ?: "") }
+    var cook by remember(date, current) { mutableStateOf(current?.plan?.cook ?: COOK_ANYONE) }
+    var repeat by remember(date, current) { mutableStateOf(current?.plan?.repeatWeeks ?: 0) }
+    var message by remember(date) { mutableStateOf<String?>(null) }
+
+    Text("Dinner", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Ink.Black)
+    FieldLabel("Meal")
+    OutlinedTextField(
+        value = meal,
+        onValueChange = { meal = it },
+        singleLine = true,
+        placeholder = { Text("e.g. Tacos") },
+        textStyle = TextStyle(fontSize = 22.sp),
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    if (state.recentMeals.isNotEmpty()) {
+        FieldLabel("Recent meals")
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            state.recentMeals.forEach { m -> InkChip(m, m.equals(meal.trim(), ignoreCase = true)) { meal = m } }
+        }
+    }
+    FieldLabel("Who's cooking")
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        state.household.forEach { p -> InkChip(p.name, cook == p.id) { cook = p.id } }
+        InkChip("Anyone", cook == COOK_ANYONE) { cook = COOK_ANYONE }
+        InkChip("Take turns", cook == COOK_TURNS) { cook = COOK_TURNS }
+    }
+    FieldLabel("Repeat")
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        listOf(0 to "Just this day", 1 to "Every week", 2 to "Every 2 weeks", 4 to "Every 4 weeks").forEach { (weeks, label) ->
+            InkChip(label, repeat == weeks) { repeat = weeks }
+        }
+    }
+    PanelHint(repeatHint(date, repeat, cook, current, state))
+    Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        InkButton("Save dinner", selected = true) {
+            if (meal.isBlank()) {
+                message = "Type a meal first."
+            } else {
+                vm.saveDinner(date, meal, cook, repeat)
+                message = "Saved."
+            }
+        }
+        if (current != null) {
+            if (current.plan.repeatWeeks > 0) {
+                InkButton("Skip this day") {
+                    vm.skipDinner(date)
+                    message = "Skipped for this day. The repeat carries on."
+                }
+                InkButton("Remove repeat") {
+                    vm.deleteDinner(current.plan.id)
+                    message = "Repeat removed."
+                }
+            } else {
+                InkButton("Remove") {
+                    vm.skipDinner(date)
+                    message = "Removed."
                 }
             }
         }
+    }
+    message?.let { PanelHint(it) }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ChoresPanel(date: LocalDate, state: BoardState, vm: BoardViewModel) {
+    val isToday = date == state.today
+    val shown = remember(state.chores, date, state.today) { Household.choresFor(date, state.today, state.chores) }
+    var pickingFor by remember(date) { mutableStateOf<String?>(null) }
+
+    Text(if (isToday) "Chores today" else "Chores", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Ink.Black)
+    when {
+        state.chores.isEmpty() -> PanelHint("No chores yet. Add them in Settings.")
+        shown.isEmpty() -> PanelHint(if (date.isBefore(state.today)) "Past days aren't tracked." else "Nothing due this day.")
+    }
+    shown.forEach { c ->
+        val person = state.person(c.personId)
+        val done = c.state == ChoreState.DONE
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .drawBehind {
+                    drawLine(Ink.LightGrey, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
+                }
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (isToday) {
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clickable(interactionSource = null, indication = null) { vm.toggleChore(c.chore.id) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier
+                            .size(30.dp)
+                            .background(if (done) Ink.Black else Ink.White, CircleShape)
+                            .border(3.dp, Ink.Black, CircleShape)
+                    )
+                }
+            } else {
+                Spacer(Modifier.width(40.dp))
+            }
+            Spacer(Modifier.width(12.dp))
+            Text(
+                c.chore.name,
+                fontSize = 23.sp,
+                color = if (done) Ink.Grey else Ink.Black,
+                textDecoration = if (done) TextDecoration.LineThrough else TextDecoration.None,
+            )
+            Spacer(Modifier.width(12.dp))
+            PersonPill(person?.name, person?.style, fontSize = 17.sp)
+            if (c.state == ChoreState.OVERDUE && c.since != null) {
+                Spacer(Modifier.width(10.dp))
+                Text("from ${c.since.format(shortWeekday)}", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Ink.Black)
+            }
+            Spacer(Modifier.weight(1f))
+            if (isToday) {
+                if (done) {
+                    val at = c.chore.lastDoneAt?.let {
+                        formatClock(Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalTime(), state.use24h)
+                    }
+                    Text(if (at != null) "Done $at" else "Done", fontSize = 16.sp, color = Ink.Grey)
+                } else {
+                    InkButton("Someone else did it", small = true) {
+                        pickingFor = if (pickingFor == c.chore.id) null else c.chore.id
+                    }
+                }
+            }
+        }
+        if (pickingFor == c.chore.id) {
+            FlowRow(
+                Modifier.padding(start = 52.dp, top = 8.dp, bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("Who did it?", fontSize = 17.sp, color = Ink.DarkGrey, modifier = Modifier.padding(top = 8.dp))
+                state.household.forEach { p ->
+                    InkChip(p.name, false) {
+                        vm.toggleChore(c.chore.id, p.id)
+                        pickingFor = null
+                    }
+                }
+            }
+        }
+    }
+    if (isToday && state.chores.isNotEmpty()) {
+        PanelHint("Tick when it's done and the next person is up. Tap a ticked one to undo.")
     }
 }
 

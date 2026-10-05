@@ -100,6 +100,38 @@ fun InkButton(label: String, selected: Boolean = false, small: Boolean = false, 
     }
 }
 
+/** Rounded choice chip, filled black when selected. */
+@Composable
+fun InkChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(22.dp)
+    Box(
+        Modifier
+            .border(2.dp, Ink.Black, shape)
+            .background(if (selected) Ink.Black else Ink.White, shape)
+            .clickable(interactionSource = null, indication = null, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
+        Text(
+            label,
+            fontSize = 19.sp,
+            color = if (selected) Ink.White else Ink.Black,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+        )
+    }
+}
+
+/** A person's name in their marker style. A null person shows as "Anyone". */
+@Composable
+fun PersonPill(name: String?, style: Int?, fontSize: androidx.compose.ui.unit.TextUnit = 15.sp) {
+    val shape = RoundedCornerShape(10.dp)
+    val s = if (name == null) EventStyle(Ink.White, Ink.Grey, Ink.DarkGrey) else styleOf(style)
+    var m = Modifier.background(s.fill, shape)
+    if (s.border != null) m = m.border(2.dp, s.border, shape)
+    Box(m.padding(horizontal = 9.dp)) {
+        Text(name ?: "Anyone", fontSize = fontSize, color = s.text, maxLines = 1)
+    }
+}
+
 private val clock24 = DateTimeFormatter.ofPattern("HH:mm")
 private val clock12 = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
 
