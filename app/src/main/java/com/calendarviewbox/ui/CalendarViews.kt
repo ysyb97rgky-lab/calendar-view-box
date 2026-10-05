@@ -9,7 +9,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.FlowRowOverflow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -196,20 +195,17 @@ private fun DayRow(
             val lineHeight = with(density) { (eventSize * 1.35f).toDp() }
             // As many lines as fit; the rest collapse into "+N more" (tap the row to see them).
             val lines = ((maxHeight + lineGap) / (lineHeight + lineGap)).toInt().coerceAtLeast(1)
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(if (compact) 26.dp else 34.dp),
-                verticalArrangement = Arrangement.spacedBy(lineGap),
+            ChipFlow(
+                count = events.size,
                 maxLines = lines,
-                overflow = FlowRowOverflow.expandIndicator {
-                    Text(
-                        "+${totalItemCount - shownItemCount} more",
-                        fontSize = eventSize,
-                        fontWeight = FontWeight.Bold,
-                        color = Ink.DarkGrey,
-                    )
+                horizontalGap = if (compact) 26.dp else 34.dp,
+                verticalGap = lineGap,
+                more = { hidden ->
+                    Text("+$hidden more", fontSize = eventSize, fontWeight = FontWeight.Bold, color = Ink.DarkGrey)
                 },
-            ) {
-                events.forEach { e -> EventChip(e, date, state, eventSize, isNext = e == next) }
+            ) { i ->
+                val e = events[i]
+                EventChip(e, date, state, eventSize, isNext = e == next)
             }
         }
         // Dinner and chores sit in their own column, once there's anything to show.

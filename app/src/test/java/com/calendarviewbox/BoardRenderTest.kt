@@ -154,6 +154,21 @@ class BoardRenderTest {
     }
 
     @Test
+    fun settingsDraw() {
+        val vm = BoardViewModel(ApplicationProvider.getApplicationContext())
+        val state = sampleState()
+        compose.setContent {
+            InkTheme {
+                com.calendarviewbox.ui.SettingsScreen(
+                    state = state, vm = vm, onClose = {}, onOpenAndroidSettings = {},
+                    onAddAccount = {}, onManageAccounts = {}, onEditDinner = {},
+                )
+            }
+        }
+        compose.waitForIdle()
+    }
+
+    @Test
     fun dayPanelDraws() {
         val vm = BoardViewModel(ApplicationProvider.getApplicationContext())
         val state = sampleState()
