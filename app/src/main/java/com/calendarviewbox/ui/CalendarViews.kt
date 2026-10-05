@@ -196,15 +196,14 @@ private fun DayRow(
             // As many lines as fit; the rest collapse into "+N more" (tap the row to see them).
             val lines = ((maxHeight + lineGap) / (lineHeight + lineGap)).toInt().coerceAtLeast(1)
             ChipFlow(
-                count = events.size,
+                items = events,
                 maxLines = lines,
                 horizontalGap = if (compact) 26.dp else 34.dp,
                 verticalGap = lineGap,
                 more = { hidden ->
                     Text("+$hidden more", fontSize = eventSize, fontWeight = FontWeight.Bold, color = Ink.DarkGrey)
                 },
-            ) { i ->
-                val e = events[i]
+            ) { e ->
                 EventChip(e, date, state, eventSize, isNext = e == next)
             }
         }

@@ -13,14 +13,15 @@ import androidx.compose.ui.unit.dp
  * the last line ends with [more], which is told how many were left out ("+3 more").
  */
 @Composable
-fun ChipFlow(
-    count: Int,
+fun <T> ChipFlow(
+    items: List<T>,
     maxLines: Int,
     modifier: Modifier = Modifier,
     horizontalGap: Dp = 30.dp,
     verticalGap: Dp = 12.dp,
     more: @Composable (hidden: Int) -> Unit,
-    item: @Composable (index: Int) -> Unit,
+    // Takes the item itself rather than an index, so a stale redraw can't look past the end of a shorter list.
+    item: @Composable (T) -> Unit,
 ) {
     SubcomposeLayout(modifier) { constraints ->
         val maxWidth = if (constraints.hasBoundedWidth) constraints.maxWidth else Int.MAX_VALUE
@@ -29,7 +30,7 @@ fun ChipFlow(
         val loose = Constraints(maxWidth = maxWidth)
 
         val chips: List<Placeable> = subcompose("chips") {
-            for (i in 0 until count) item(i)
+            items.forEach { item(it) }
         }.map { it.measure(loose) }
 
         // Works out which line each chip goes on, starting a new line when one doesn't fit.
