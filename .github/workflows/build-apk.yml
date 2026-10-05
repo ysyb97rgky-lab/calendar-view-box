@@ -27,6 +27,11 @@ jobs:
           set -o pipefail
           ./gradlew --no-daemon assembleDebug 2>&1 | tee build.log
 
+      - name: Render test (catches crashes before release)
+        run: |
+          set -o pipefail
+          ./gradlew --no-daemon testDebugUnitTest 2>&1 | tee -a build.log
+
       # If the build fails, keep the log on a separate branch so it can be read and fixed.
       - name: Save build log
         if: failure()

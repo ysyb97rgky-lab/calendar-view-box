@@ -178,7 +178,7 @@ private val shortDateFmt = DateTimeFormatter.ofPattern("EEE d MMM")
 
 /** Date and time, weather, and the view switcher in one strip, so the calendar gets the full height. */
 @Composable
-private fun HeaderStrip(state: BoardState, onMode: (CalendarMode) -> Unit) {
+internal fun HeaderStrip(state: BoardState, onMode: (CalendarMode) -> Unit) {
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
         Column {
             Text(
@@ -240,7 +240,7 @@ private fun ModeSwitch(mode: CalendarMode, onMode: (CalendarMode) -> Unit) {
 // ---------------- lists column ----------------
 
 @Composable
-private fun ListsColumn(
+internal fun ListsColumn(
     state: BoardState,
     onComplete: (String) -> Unit,
     onAdd: () -> Unit,
@@ -431,7 +431,7 @@ private fun dueLabel(
 
 /** Legend on the left; status, Update, Refresh and Settings on the right. */
 @Composable
-private fun Footer(state: BoardState, onRefresh: () -> Unit, onSettings: () -> Unit, onUpdate: () -> Unit) {
+internal fun Footer(state: BoardState, onRefresh: () -> Unit, onSettings: () -> Unit, onUpdate: () -> Unit) {
     // Reads state.now (via the clock in the header), so the offline check reruns every minute.
     val offlineSince = state.offlineSinceMillis?.takeIf { System.currentTimeMillis() - it >= OFFLINE_GRACE_MS }
     Column(Modifier.fillMaxWidth()) {
