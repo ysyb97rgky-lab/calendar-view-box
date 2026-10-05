@@ -1,6 +1,7 @@
 package com.calendarviewbox.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -36,53 +37,48 @@ import kotlin.math.sin
 
 private val weekdayShort = DateTimeFormatter.ofPattern("EEE")
 
-/** Today's forecast with an icon, then the next four days in a row. */
+/** Weather for the header strip: today's icon and temperatures, then the next four days. */
 @Composable
-fun WeatherStrip(state: BoardState) {
+fun WeatherHeader(state: BoardState) {
     val weather = state.weather
     val today = weather?.days?.firstOrNull { it.date == state.today }
     if (weather == null || today == null) {
-        state.weatherError?.let {
-            Text(it, fontSize = 16.sp, color = Ink.DarkGrey, modifier = Modifier.padding(top = 12.dp))
-        }
+        state.weatherError?.let { Text(it, fontSize = 18.sp, color = Ink.DarkGrey) }
         return
     }
-    // Only trust "now" if the forecast is under three hours old.
     val currentFresh = System.currentTimeMillis() - weather.fetchedAt < 3 * 60 * 60 * 1000L
     val nowTemp = weather.currentTemp?.takeIf { currentFresh }
 
-    Column(Modifier.fillMaxWidth().padding(top = 16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            WeatherIcon(today.code, 64.dp)
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text("${today.max}°", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Ink.Black)
-                    Text(" / ${today.min}°", fontSize = 26.sp, color = Ink.DarkGrey)
-                    if (nowTemp != null) {
-                        Spacer(Modifier.width(14.dp))
-                        Text("Now $nowTemp°", fontSize = 18.sp, color = Ink.DarkGrey, modifier = Modifier.padding(bottom = 3.dp))
-                    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        WeatherIcon(today.code, 64.dp)
+        Spacer(Modifier.width(16.dp))
+        Column {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text("${today.max}°", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Ink.Black)
+                Text(" / ${today.min}°", fontSize = 26.sp, color = Ink.DarkGrey)
+                if (nowTemp != null) {
+                    Spacer(Modifier.width(12.dp))
+                    Text("Now $nowTemp°", fontSize = 18.sp, color = Ink.DarkGrey, modifier = Modifier.padding(bottom = 3.dp))
                 }
-                val rain = today.rainChance?.takeIf { it >= 10 }?.let { ", $it% chance of rain" } ?: ""
-                Text(
-                    describeWeather(today.code) + rain,
-                    fontSize = 18.sp,
-                    color = Ink.DarkGrey,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
+            val rain = today.rainChance?.takeIf { it >= 10 }?.let { ", $it% chance of rain" } ?: ""
+            Text(
+                describeWeather(today.code) + rain,
+                fontSize = 19.sp,
+                color = Ink.DarkGrey,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth()) {
+        Spacer(Modifier.width(28.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
             weather.days.filter { it.date.isAfter(state.today) }.take(4).forEach { day ->
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(day.date.format(weekdayShort), fontSize = 16.sp, color = Ink.DarkGrey)
-                    WeatherIcon(day.code, 34.dp)
+                    WeatherIcon(day.code, 30.dp)
                     Text("${day.max}° ${day.min}°", fontSize = 16.sp, color = Ink.Black)
                     day.rainChance?.takeIf { it >= 30 }?.let {
-                        Text("$it% rain", fontSize = 14.sp, color = Ink.DarkGrey)
+                        Text("$it%", fontSize = 14.sp, color = Ink.DarkGrey)
                     }
                 }
             }

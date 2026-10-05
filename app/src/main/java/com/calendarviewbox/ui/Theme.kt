@@ -82,18 +82,18 @@ fun Marker(style: EventStyle, size: Dp) {
 
 /** Flat button with no ripple, since animations smear on e-ink. */
 @Composable
-fun InkButton(label: String, selected: Boolean = false, onClick: () -> Unit) {
+fun InkButton(label: String, selected: Boolean = false, small: Boolean = false, onClick: () -> Unit) {
     val shape = RoundedCornerShape(8.dp)
     Box(
         Modifier
             .border(2.dp, Ink.Black, shape)
             .background(if (selected) Ink.Black else Ink.White, shape)
             .clickable(interactionSource = null, indication = null, onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 10.dp)
+            .padding(horizontal = if (small) 14.dp else 18.dp, vertical = if (small) 6.dp else 10.dp)
     ) {
         Text(
             label,
-            fontSize = 20.sp,
+            fontSize = if (small) 17.sp else 20.sp,
             color = if (selected) Ink.White else Ink.Black,
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
         )

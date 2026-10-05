@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -39,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -76,6 +78,7 @@ fun App(
     val state by vm.state.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
+    var openDay by remember { mutableStateOf<LocalDate?>(null) }
     val base = LocalDensity.current
 
     InkTheme {
@@ -106,14 +109,19 @@ fun App(
                         onRequestPermission = onRequestPermission,
                         onAdd = { adding = true },
                         onAddAccount = { onAddAccount(true) },
+                        onOpenDay = { openDay = it },
                     )
+                    openDay?.let { day ->
+                        BackHandler { openDay = null; vm.panelClosed() }
+                        DayDetailOverlay(day, state, onClose = { openDay = null; vm.panelClosed() })
+                    }
                     if (adding) {
-                        BackHandler { adding = false }
+                        BackHandler { adding = false; vm.panelClosed() }
                         AddTaskOverlay(
                             kind = state.activeList,
                             staples = if (state.activeList == ListKind.GROCERIES) state.staples else emptyList(),
                             onSubmit = { text, done -> vm.addTask(state.activeList, text, done) },
-                            onClose = { adding = false },
+                            onClose = { adding = false; vm.panelClosed() },
                         )
                     }
                 }
@@ -131,52 +139,104 @@ private fun Board(
     onRequestPermission: () -> Unit,
     onAdd: () -> Unit,
     onAddAccount: () -> Unit,
+    onOpenDay: (LocalDate) -> Unit,
 ) {
-    Row(Modifier.fillMaxSize().padding(24.dp)) {
-        TodoPane(
-            state = state,
-            onComplete = vm::completeTask,
-            onAdd = onAdd,
-            onSwitch = vm::setActiveList,
-            modifier = Modifier.weight(0.3f).fillMaxHeight(),
-        )
-        Spacer(Modifier.width(24.dp))
-        Box(Modifier.width(3.dp).fillMaxHeight().background(Ink.Black))
-        Spacer(Modifier.width(24.dp))
-        Column(Modifier.weight(0.7f).fillMaxHeight()) {
-            Toolbar(
-                mode = state.mode,
-                onMode = vm::setMode,
-                onRefresh = vm::manualRefresh,
-                onSettings = onOpenSettings,
-                updateLabel = state.update?.let { "Update" },
-                onUpdate = vm::installUpdate,
+    Column(Modifier.fillMaxSize().padding(start = 28.dp, end = 28.dp, top = 22.dp, bottom = 18.dp)) {
+        HeaderStrip(state, onMode = vm::setMode)
+        Spacer(Modifier.height(14.dp))
+        Box(Modifier.fillMaxWidth().height(3.dp).background(Ink.Black))
+        Row(Modifier.weight(1f).fillMaxWidth()) {
+            ListsColumn(
+                state = state,
+                onComplete = vm::completeTask,
+                onAdd = onAdd,
+                onSwitch = vm::setActiveList,
+                modifier = Modifier.width(400.dp).fillMaxHeight().padding(top = 18.dp, end = 26.dp),
             )
-            state.updateStatus?.let {
-                Text(it, fontSize = 18.sp, color = Ink.Black, modifier = Modifier.padding(top = 8.dp))
-            }
-            Spacer(Modifier.height(16.dp))
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                if (state.hasCalendarPermission) {
-                    CalendarArea(state)
-                } else {
-                    PermissionPrompt(onRequestPermission)
+            Box(Modifier.width(2.dp).fillMaxHeight().background(Ink.Black))
+            Box(Modifier.weight(1f).fillMaxHeight().padding(start = 10.dp)) {
+                when {
+                    !state.hasCalendarPermission -> PermissionPrompt(onRequestPermission)
+                    state.calendars.isEmpty() || state.shownCalendarIds.isEmpty() -> NoCalendarsPrompt(state, onAddAccount)
+                    else -> CalendarArea(state, onOpenDay)
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            Legend(state, onAddAccount)
         }
+        Footer(state, onRefresh = vm::manualRefresh, onSettings = onOpenSettings, onUpdate = vm::installUpdate)
     }
 }
 
-// ---------------- left: date and to-do ----------------
+// ---------------- header strip ----------------
 
 private val dayNameFmt = DateTimeFormatter.ofPattern("EEEE")
 private val longDateFmt = DateTimeFormatter.ofPattern("d MMMM yyyy")
 private val shortDateFmt = DateTimeFormatter.ofPattern("EEE d MMM")
 
+/** Date and time, weather, and the view switcher in one strip, so the calendar gets the full height. */
 @Composable
-private fun TodoPane(
+private fun HeaderStrip(state: BoardState, onMode: (CalendarMode) -> Unit) {
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+        Column {
+            Text(
+                state.today.format(dayNameFmt),
+                fontSize = 58.sp,
+                lineHeight = 60.sp,
+                fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.Bold,
+                color = Ink.Black,
+            )
+            Text(
+                state.today.format(longDateFmt) + ", " + formatClock(state.now, state.use24h),
+                fontSize = 22.sp,
+                color = Ink.DarkGrey,
+            )
+        }
+        Box(
+            Modifier
+                .padding(horizontal = 32.dp, vertical = 6.dp)
+                .width(2.dp)
+                .fillMaxHeight()
+                .background(Ink.Black)
+        )
+        WeatherHeader(state)
+        Spacer(Modifier.weight(1f))
+        ModeSwitch(state.mode, onMode)
+    }
+}
+
+@Composable
+private fun ModeSwitch(mode: CalendarMode, onMode: (CalendarMode) -> Unit) {
+    val shape = RoundedCornerShape(10.dp)
+    Row(
+        Modifier
+            .height(IntrinsicSize.Min)
+            .border(2.dp, Ink.Black, shape)
+            .clip(shape)
+    ) {
+        CalendarMode.entries.forEachIndexed { i, m ->
+            if (i > 0) Box(Modifier.width(2.dp).fillMaxHeight().background(Ink.Black))
+            val selected = m == mode
+            Box(
+                Modifier
+                    .background(if (selected) Ink.Black else Ink.White)
+                    .clickable(interactionSource = null, indication = null) { onMode(m) }
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    m.label,
+                    fontSize = 20.sp,
+                    color = if (selected) Ink.White else Ink.Black,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                )
+            }
+        }
+    }
+}
+
+// ---------------- lists column ----------------
+
+@Composable
+private fun ListsColumn(
     state: BoardState,
     onComplete: (String) -> Unit,
     onAdd: () -> Unit,
@@ -186,34 +246,16 @@ private fun TodoPane(
     val active = state.activeList
     val list = state.list(active)
     Column(modifier) {
-        // The one large element: a printed-calendar style weekday.
-        Text(
-            state.today.format(dayNameFmt),
-            fontSize = 64.sp,
-            lineHeight = 66.sp,
-            fontFamily = FontFamily.Serif,
-            fontWeight = FontWeight.Bold,
-            color = Ink.Black,
-        )
-        Text(state.today.format(longDateFmt), fontSize = 26.sp, fontFamily = FontFamily.Serif, color = Ink.Black)
-        Text(formatClock(state.now, state.use24h), fontSize = 24.sp, color = Ink.DarkGrey)
-
-        WeatherStrip(state)
-
-        Spacer(Modifier.height(20.dp))
-        Box(Modifier.fillMaxWidth().height(3.dp).background(Ink.Black))
-        Spacer(Modifier.height(16.dp))
-
         Row(verticalAlignment = Alignment.CenterVertically) {
             ListTab(ListKind.TODO, state.todo.tasks.size, active == ListKind.TODO, onSwitch)
             if (state.groceriesEnabled) {
-                Spacer(Modifier.width(24.dp))
+                Spacer(Modifier.width(22.dp))
                 ListTab(ListKind.GROCERIES, state.groceries.tasks.size, active == ListKind.GROCERIES, onSwitch)
             }
             Spacer(Modifier.weight(1f))
             InkButton("Add", onClick = onAdd)
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
 
         list.error?.let {
             Text(it, fontSize = 18.sp, color = Ink.Black, modifier = Modifier.padding(vertical = 6.dp))
@@ -256,17 +298,6 @@ private fun TodoPane(
                 items(list.tasks, key = { it.task.id }) { row -> TaskRowFor(row, state, onComplete) }
             }
         }
-
-        // This pane already reads state.now for the clock, so the check reruns every minute.
-        val offlineSince = state.offlineSinceMillis
-            ?.takeIf { System.currentTimeMillis() - it >= OFFLINE_GRACE_MS }
-        if (offlineSince != null) {
-            OfflineNote(offlineSince, state.use24h)
-        } else {
-            list.lastSync?.let {
-                Text("List updated ${formatClock(it, state.use24h)}", fontSize = 16.sp, color = Ink.Grey)
-            }
-        }
     }
 }
 
@@ -276,6 +307,7 @@ private fun TaskRowFor(row: DisplayTask, state: BoardState, onComplete: (String)
         row = row,
         today = state.today,
         use24h = state.use24h,
+        evening = isEvening(state),
         done = row.task.id in state.completingIds,
         onComplete = onComplete,
     )
@@ -294,13 +326,13 @@ private fun ListTab(kind: ListKind, count: Int, selected: Boolean, onSwitch: (Li
         Row(verticalAlignment = Alignment.Bottom) {
             Text(
                 kind.title,
-                fontSize = 30.sp,
+                fontSize = 28.sp,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                 color = if (selected) Ink.Black else Ink.DarkGrey,
             )
             if (count > 0) {
-                Spacer(Modifier.width(8.dp))
-                Text("$count", fontSize = 22.sp, color = Ink.DarkGrey, modifier = Modifier.padding(bottom = 2.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("$count", fontSize = 20.sp, color = Ink.DarkGrey, modifier = Modifier.padding(bottom = 2.dp))
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -313,19 +345,196 @@ private fun ListTab(kind: ListKind, count: Int, selected: Boolean, onSwitch: (Li
     }
 }
 
+@Composable
+private fun TaskRow(
+    row: DisplayTask,
+    today: LocalDate,
+    use24h: Boolean,
+    evening: Boolean,
+    done: Boolean,
+    onComplete: (String) -> Unit,
+) {
+    val task = row.task
+    Row(
+        Modifier.fillMaxWidth().padding(start = (row.depth * 28).dp, top = 3.dp, bottom = 3.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        // Large tap target around a small circle.
+        Box(
+            Modifier
+                .size(46.dp)
+                .clickable(interactionSource = null, indication = null, enabled = !done) { onComplete(task.id) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier
+                    .size(28.dp)
+                    .background(if (done) Ink.Black else Ink.White, CircleShape)
+                    .border(3.dp, Ink.Black, CircleShape)
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f).padding(top = 8.dp)) {
+            Text(
+                task.content,
+                fontSize = 23.sp,
+                lineHeight = 29.sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                color = if (done) Ink.Grey else Ink.Black,
+                textDecoration = if (done) TextDecoration.LineThrough else TextDecoration.None,
+            )
+            dueLabel(task.due, task.dueTime, task.isRecurring, today, use24h, evening)?.let { (label, strong) ->
+                Text(
+                    label,
+                    fontSize = 16.sp,
+                    fontWeight = if (strong) FontWeight.Bold else FontWeight.Normal,
+                    color = if (strong) Ink.Black else Ink.DarkGrey,
+                )
+            }
+        }
+    }
+}
+
+/** Due label and whether to make it stand out: overdue, or due tomorrow once it's evening. */
+private fun dueLabel(
+    due: LocalDate?,
+    time: java.time.LocalTime?,
+    recurring: Boolean,
+    today: LocalDate,
+    use24h: Boolean,
+    evening: Boolean,
+): Pair<String, Boolean>? {
+    if (due == null) return null
+    val overdue = due.isBefore(today)
+    val tomorrow = due == today.plusDays(1)
+    val day = when {
+        due == today -> "Today"
+        tomorrow && evening -> "Due tomorrow"
+        tomorrow -> "Tomorrow"
+        else -> due.format(shortDateFmt)
+    }
+    val text = buildString {
+        if (overdue) append("Overdue, ")
+        append(day)
+        if (time != null) append(" ").append(formatShortTime(time, use24h))
+        if (recurring) append(", repeats")
+    }
+    return text to (overdue || (tomorrow && evening))
+}
+
+// ---------------- footer ----------------
+
+/** Legend on the left; status, Update, Refresh and Settings on the right. */
+@Composable
+private fun Footer(state: BoardState, onRefresh: () -> Unit, onSettings: () -> Unit, onUpdate: () -> Unit) {
+    // Reads state.now (via the clock in the header), so the offline check reruns every minute.
+    val offlineSince = state.offlineSinceMillis?.takeIf { System.currentTimeMillis() - it >= OFFLINE_GRACE_MS }
+    Column(Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().height(2.dp).background(Ink.Black))
+        Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (offlineSince != null) {
+                OfflinePill(offlineSince, state.use24h)
+                Spacer(Modifier.width(24.dp))
+            }
+            Legend(state, Modifier.weight(1f))
+            state.updateStatus?.let {
+                Text(
+                    it,
+                    fontSize = 17.sp,
+                    color = Ink.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 560.dp).padding(end = 16.dp),
+                )
+            }
+            if (offlineSince == null) {
+                state.todo.lastSync?.let {
+                    Text(
+                        "Updated ${formatClock(it, state.use24h)}",
+                        fontSize = 16.sp,
+                        color = Ink.Grey,
+                        modifier = Modifier.padding(end = 16.dp),
+                    )
+                }
+            }
+            if (state.update != null) {
+                InkButton("Update", selected = true, small = true, onClick = onUpdate)
+                Spacer(Modifier.width(10.dp))
+            }
+            InkButton("Refresh", small = true, onClick = onRefresh)
+            Spacer(Modifier.width(10.dp))
+            InkButton("Settings", small = true, onClick = onSettings)
+        }
+    }
+}
+
+@Composable
+private fun Legend(state: BoardState, modifier: Modifier) {
+    val shown = state.calendars.filter { it.id in state.shownCalendarIds }
+    Row(modifier.horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
+        shown.forEach { cal ->
+            Marker(styleOf(state.styles[cal.id]), 18.dp)
+            Spacer(Modifier.width(8.dp))
+            Text(cal.name, fontSize = 17.sp, color = Ink.DarkGrey, maxLines = 1)
+            Spacer(Modifier.width(26.dp))
+        }
+        state.calendarError?.let { Text(it, fontSize = 16.sp, color = Ink.Black) }
+    }
+}
+
 /** Shown when the board has had no connection for over a minute, so nobody trusts stale plans. */
 @Composable
-private fun OfflineNote(sinceMillis: Long, use24h: Boolean) {
+private fun OfflinePill(sinceMillis: Long, use24h: Boolean) {
     val since = Instant.ofEpochMilli(sinceMillis).atZone(ZoneId.systemDefault()).toLocalTime()
-    Column(
+    Box(
         Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp)
             .background(Ink.Black, RoundedCornerShape(6.dp))
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .padding(horizontal = 14.dp, vertical = 6.dp)
     ) {
-        Text("Offline since ${formatClock(since, use24h)}", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Ink.White)
-        Text("The calendar and list may be out of date.", fontSize = 16.sp, color = Ink.White)
+        Text(
+            "Offline since ${formatClock(since, use24h)}. The calendar and lists may be out of date.",
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold,
+            color = Ink.White,
+        )
+    }
+}
+
+// ---------------- prompts ----------------
+
+@Composable
+private fun PermissionPrompt(onRequest: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("Allow calendar access to show your events here.", fontSize = 24.sp, color = Ink.Black)
+        Spacer(Modifier.height(16.dp))
+        InkButton("Allow calendar access", onClick = onRequest)
+    }
+}
+
+@Composable
+private fun NoCalendarsPrompt(state: BoardState, onAddAccount: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            if (state.calendars.isEmpty()) "No calendars yet." else "No calendars are ticked. Choose them in Settings.",
+            fontSize = 26.sp,
+            color = Ink.Black,
+        )
+        if (state.calendars.isEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            InkButton("Add Google account", selected = true, onClick = onAddAccount)
+        }
+        state.accountMessage?.let {
+            Text(it, fontSize = 18.sp, color = Ink.Black, modifier = Modifier.padding(top = 12.dp))
+        }
     }
 }
 
@@ -430,145 +639,6 @@ private fun AddTaskOverlay(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun TaskRow(
-    row: DisplayTask,
-    today: LocalDate,
-    use24h: Boolean,
-    done: Boolean,
-    onComplete: (String) -> Unit,
-) {
-    val task = row.task
-    Row(
-        Modifier.fillMaxWidth().padding(start = (row.depth * 28).dp, top = 4.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        // Large tap target around a small circle.
-        Box(
-            Modifier
-                .size(48.dp)
-                .clickable(interactionSource = null, indication = null, enabled = !done) { onComplete(task.id) },
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(
-                Modifier
-                    .size(30.dp)
-                    .background(if (done) Ink.Black else Ink.White, CircleShape)
-                    .border(3.dp, Ink.Black, CircleShape)
-            )
-        }
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f).padding(top = 8.dp)) {
-            Text(
-                task.content,
-                fontSize = 24.sp,
-                lineHeight = 30.sp,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                color = if (done) Ink.Grey else Ink.Black,
-                textDecoration = if (done) TextDecoration.LineThrough else TextDecoration.None,
-            )
-            dueLabel(task.due, task.dueTime, task.isRecurring, today, use24h)?.let { (label, overdue) ->
-                Text(
-                    label,
-                    fontSize = 17.sp,
-                    fontWeight = if (overdue) FontWeight.Bold else FontWeight.Normal,
-                    color = if (overdue) Ink.Black else Ink.DarkGrey,
-                )
-            }
-        }
-    }
-}
-
-private fun dueLabel(
-    due: LocalDate?,
-    time: java.time.LocalTime?,
-    recurring: Boolean,
-    today: LocalDate,
-    use24h: Boolean,
-): Pair<String, Boolean>? {
-    if (due == null) return null
-    val overdue = due.isBefore(today)
-    val day = when (due) {
-        today -> "Today"
-        today.plusDays(1) -> "Tomorrow"
-        else -> due.format(shortDateFmt)
-    }
-    val parts = buildString {
-        if (overdue) append("Overdue, ")
-        append(day)
-        if (time != null) append(" ").append(formatShortTime(time, use24h))
-        if (recurring) append(", repeats")
-    }
-    return parts to overdue
-}
-
-// ---------------- right: toolbar, legend, prompts ----------------
-
-@Composable
-private fun Toolbar(
-    mode: CalendarMode,
-    onMode: (CalendarMode) -> Unit,
-    onRefresh: () -> Unit,
-    onSettings: () -> Unit,
-    updateLabel: String?,
-    onUpdate: () -> Unit,
-) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            CalendarMode.entries.forEach { m ->
-                InkButton(m.label, selected = m == mode) { onMode(m) }
-            }
-        }
-        Spacer(Modifier.weight(1f))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (updateLabel != null) InkButton(updateLabel, selected = true, onClick = onUpdate)
-            InkButton("Refresh", onClick = onRefresh)
-            InkButton("Settings", onClick = onSettings)
-        }
-    }
-}
-
-@Composable
-private fun Legend(state: BoardState, onAddAccount: () -> Unit) {
-    val shown = state.calendars.filter { it.id in state.shownCalendarIds }
-    if (state.hasCalendarPermission && shown.isEmpty()) {
-        // Nothing to show yet: offer sign-in right here instead of sending people to Android settings.
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("No calendars yet.", fontSize = 18.sp, color = Ink.Black)
-            Spacer(Modifier.width(16.dp))
-            InkButton("Add Google account", selected = true, onClick = onAddAccount)
-        }
-        state.accountMessage?.let { Text(it, fontSize = 16.sp, color = Ink.Black, modifier = Modifier.padding(top = 6.dp)) }
-        return
-    }
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        shown.forEach { cal ->
-            Marker(styleOf(state.styles[cal.id]), 18.dp)
-            Spacer(Modifier.width(8.dp))
-            Text(cal.name, fontSize = 17.sp, color = Ink.DarkGrey, maxLines = 1)
-            Spacer(Modifier.width(24.dp))
-        }
-        state.calendarError?.let { Text(it, fontSize = 16.sp, color = Ink.Black) }
-    }
-}
-
-@Composable
-private fun PermissionPrompt(onRequest: () -> Unit) {
-    Column(
-        Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text("Allow calendar access to show your events here.", fontSize = 24.sp, color = Ink.Black)
-        Spacer(Modifier.height(16.dp))
-        InkButton("Allow calendar access", onClick = onRequest)
     }
 }
 

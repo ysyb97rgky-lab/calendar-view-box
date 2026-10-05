@@ -214,9 +214,11 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
     // ---- user actions ----
 
     fun setMode(mode: CalendarMode) {
+        if (mode == _state.value.mode) return
         prefs.mode = mode
         _state.update { it.copy(mode = mode) }
         reloadCalendar()
+        flash() // the whole calendar redraws, so clear it properly
     }
 
     fun manualRefresh() {
@@ -691,14 +693,22 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** A black-then-white flash once an hour clears e-ink ghosting. */
+    /**
+     * A black-then-white flash clears e-ink ghosting. It runs at 3am, when nobody's looking,
+     * plus after big changes (Refresh, a new day, switching view, closing a full-screen panel).
+     */
     private suspend fun flashLoop() {
         while (viewModelScope.isActive) {
-            val msToNextHour = 3_600_000 - (System.currentTimeMillis() % 3_600_000)
-            delay(msToNextHour + 2_000)
+            val now = LocalDateTime.now()
+            var next = now.toLocalDate().atTime(3, 0)
+            if (!next.isAfter(now)) next = next.plusDays(1)
+            delay(java.time.Duration.between(now, next).toMillis() + 2_000)
             flash()
         }
     }
+
+    /** Called when a full-screen panel closes, since those leave the most ghosting behind. */
+    fun panelClosed() = flash()
 
     private fun flash() = _state.update { it.copy(flashTick = it.flashTick + 1) }
 

@@ -32,6 +32,7 @@ data class EventItem(
     val calendarId: Long,
     val title: String,
     val location: String?,
+    val description: String? = null,
     val allDay: Boolean,
     val start: LocalDateTime,
     val end: LocalDateTime,
@@ -97,6 +98,7 @@ class CalendarRepository(private val context: Context) {
             Instances.END,
             Instances.STATUS,
             Instances.SELF_ATTENDEE_STATUS,
+            Instances.DESCRIPTION,
         )
 
         val out = mutableListOf<EventItem>()
@@ -116,7 +118,7 @@ class CalendarRepository(private val context: Context) {
                     var last = Instant.ofEpochMilli(e).atZone(ZoneOffset.UTC).toLocalDate().minusDays(1)
                     if (last.isBefore(s)) last = s
                     EventItem(
-                        c.getLong(0), calendarId, title(c.getString(2)), c.getString(3),
+                        c.getLong(0), calendarId, title(c.getString(2)), c.getString(3), c.getString(9),
                         true, s.atStartOfDay(), last.atStartOfDay(), s, last,
                     )
                 } else {
@@ -129,7 +131,7 @@ class CalendarRepository(private val context: Context) {
                         if (en.toLocalDate().isAfter(s.toLocalDate())) en.toLocalDate() else s.toLocalDate()
                     }
                     EventItem(
-                        c.getLong(0), calendarId, title(c.getString(2)), c.getString(3),
+                        c.getLong(0), calendarId, title(c.getString(2)), c.getString(3), c.getString(9),
                         false, s, en, s.toLocalDate(), last,
                     )
                 }

@@ -28,19 +28,11 @@ fun monthGrid(today: LocalDate): Pair<LocalDate, Int> {
     return start to (days + 6) / 7
 }
 
-/**
- * First day of the Week view. Monday on weekdays. On Saturday and Sunday the week rolls
- * forward to start today, so the coming week is in view and today's plans stay visible.
- */
-fun weekStart(today: LocalDate): LocalDate = when (today.dayOfWeek) {
-    DayOfWeek.SATURDAY, DayOfWeek.SUNDAY -> today
-    else -> mondayOf(today)
-}
-
 /** Date range [from, toExclusive) each view needs events for. */
 fun CalendarMode.range(today: LocalDate): Pair<LocalDate, LocalDate> = when (this) {
-    CalendarMode.WEEK -> weekStart(today).let { it to it.plusDays(7) }
-    CalendarMode.TWO_WEEKS -> mondayOf(today).let { it to it.plusDays(14) }
+    // Week and 2 weeks always start today, so no row is spent on days already gone.
+    CalendarMode.WEEK -> today to today.plusDays(7)
+    CalendarMode.TWO_WEEKS -> today to today.plusDays(14)
     CalendarMode.MONTH -> monthGrid(today).let { (start, weeks) -> start to start.plusDays(weeks * 7L) }
     CalendarMode.AGENDA -> today to today.plusDays(14)
 }

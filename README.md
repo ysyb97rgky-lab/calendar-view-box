@@ -2,13 +2,16 @@
 
 A full-screen family calendar and shared to-do list for a Boox Note Max (or any Android e-ink tablet), hung in landscape.
 
-- **Left:** today's date, the weather, and two shared Todoist lists on tabs: To do and Groceries. Tap a circle to tick an item off, or tap Add to type a new one. Groceries has one-tap buttons for staples, and the board returns to To do after 5 minutes.
-- **Right:** your Google calendars as Week, 2 weeks, Month or Agenda. The choice is remembered. On Saturday and Sunday the Week view starts from today, so the coming week is in view.
+- **Top strip:** the date and time, the weather, and the Week / 2 weeks / Month / Agenda switch.
+- **Left:** two Todoist lists on tabs: To do and Groceries. Tap a circle to tick an item off, or tap Add to type a new one. Groceries has one-tap buttons for staples, and the board returns to To do after 5 minutes.
+- **Right:** your Google calendars. Week shows one full-width row per day, starting today, so long titles fit. 2 weeks shows the same rows in two halves. Busy days end with "+3 more"; tap any day (in Week, 2 weeks or Month) to see it in full with locations and notes.
+- **Today and tonight:** earlier events fade to grey and the next one is bold with an "in 2 hr" tag. After 7pm, tomorrow gets the bold treatment, and to-dos due tomorrow are flagged.
+- **Footer:** the calendar legend, an offline note if the connection drops, and Update, Refresh and Settings.
 - Black, white and greys only. Each calendar gets its own marker (outlined, light grey, black or dark grey), shown in the legend at the bottom.
 - Calendar changes show within a minute or so of syncing. The to-do list checks Todoist every 30 seconds.
 - If the connection drops for more than a minute, a black "Offline since..." note replaces the "List updated" line. The last list and forecast stay on screen, even after a restart.
 - Weather comes from Open-Meteo, which is free and needs no account. It updates every 30 minutes.
-- Once an hour the screen flashes black then white to clear e-ink ghosting.
+- The screen flashes black then white to clear e-ink ghosting at 3am, and after big changes: Refresh, a new day, switching view, or closing a full-screen panel.
 - When a newer build is on the GitHub Releases page, an **Update** button appears next to Refresh. One tap downloads it and Android asks you to confirm.
 
 ## 1. Accounts (do these first)
@@ -75,7 +78,7 @@ Boox moves these between firmware versions. If a name doesn't match, search the 
 - **"Todoist error 401 / token was rejected":** the token is wrong or was regenerated. Copy it again from the display account.
 - **"No Todoist project called Home":** the display account hasn't accepted the share, or the name differs. Leave the project name blank to use the first shared project.
 - **Text too small or too large:** Settings, Text size.
-- **Ghosting:** tap Refresh, or wait for the hourly flash.
+- **Ghosting:** tap Refresh, or switch views; it also clears overnight.
 - **"Offline since..." won't clear:** check the Boox's Wi-Fi, and that Boox freezing and sleep are off for the app. The note clears on the next successful sync.
 - **Weather shows the wrong place:** in Settings, add the state after the name (e.g. "Burwood, NSW" rather than "Burwood").
 
