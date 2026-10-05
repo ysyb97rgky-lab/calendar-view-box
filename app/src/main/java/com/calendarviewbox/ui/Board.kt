@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -60,7 +61,10 @@ import com.calendarviewbox.BoardViewModel
 import com.calendarviewbox.DisplayTask
 import com.calendarviewbox.ListKind
 import com.calendarviewbox.OFFLINE_GRACE_MS
+import com.calendarviewbox.StoreSearchState
 import com.calendarviewbox.data.CalendarMode
+import com.calendarviewbox.data.StoreProduct
+import com.calendarviewbox.data.TodoTask
 import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.LocalDate
@@ -79,6 +83,7 @@ fun App(
     var showSettings by remember { mutableStateOf(false) }
     var adding by remember { mutableStateOf(false) }
     var openDay by remember { mutableStateOf<LocalDate?>(null) }
+    var pricing by remember { mutableStateOf<TodoTask?>(null) }
     val base = LocalDensity.current
 
     InkTheme {
@@ -114,7 +119,13 @@ fun App(
                         onAdd = { adding = true },
                         onAddAccount = { onAddAccount(true) },
                         onOpenDay = { openDay = it },
+                        onEditPrice = { pricing = it },
                     )
+                    pricing?.let { task ->
+                        val close = { pricing = null; vm.clearStoreSearch(); vm.panelClosed() }
+                        BackHandler { close() }
+                        PriceEditorOverlay(task, state, vm, onClose = close)
+                    }
                     openDay?.let { day ->
                         BackHandler { openDay = null; vm.panelClosed() }
                         DayDetailOverlay(day, state, vm, onClose = { openDay = null; vm.panelClosed() })
@@ -124,8 +135,11 @@ fun App(
                         AddTaskOverlay(
                             kind = state.activeList,
                             staples = if (state.activeList == ListKind.GROCERIES) state.staples else emptyList(),
+                            search = state.storeSearch,
                             onSubmit = { text, done -> vm.addTask(state.activeList, text, done) },
-                            onClose = { adding = false; vm.panelClosed() },
+                            onSearch = vm::searchStores,
+                            onPick = { product, typed, done -> vm.addGroceryProduct(product, typed, done) },
+                            onClose = { adding = false; vm.clearStoreSearch(); vm.panelClosed() },
                         )
                     }
                 }
@@ -144,6 +158,7 @@ private fun Board(
     onAdd: () -> Unit,
     onAddAccount: () -> Unit,
     onOpenDay: (LocalDate) -> Unit,
+    onEditPrice: (TodoTask) -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(start = 28.dp, end = 28.dp, top = 22.dp, bottom = 18.dp)) {
         HeaderStrip(state, onMode = vm::setMode)
@@ -155,6 +170,7 @@ private fun Board(
                 onComplete = vm::completeTask,
                 onAdd = onAdd,
                 onSwitch = vm::setActiveList,
+                onEditPrice = onEditPrice,
                 modifier = Modifier.width(400.dp).fillMaxHeight().padding(top = 18.dp, end = 26.dp),
             )
             Box(Modifier.width(2.dp).fillMaxHeight().background(Ink.Black))
@@ -246,9 +262,12 @@ internal fun ListsColumn(
     onAdd: () -> Unit,
     onSwitch: (ListKind) -> Unit,
     modifier: Modifier,
+    onEditPrice: (TodoTask) -> Unit = {},
 ) {
     val active = state.activeList
     val list = state.list(active)
+    val priceTag: (@Composable (TodoTask) -> Unit)? =
+        if (active == ListKind.GROCERIES) { task -> PriceTag(task, state, onEditPrice) } else null
     Column(modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             ListTab(ListKind.TODO, state.todo.tasks.size, active == ListKind.TODO, onSwitch)
@@ -264,6 +283,7 @@ internal fun ListsColumn(
         list.error?.let {
             Text(it, fontSize = 18.sp, color = Ink.Black, modifier = Modifier.padding(vertical = 6.dp))
         }
+        if (active == ListKind.GROCERIES) GroceryTotal(list.tasks, state)
         if (list.tasks.isEmpty() && list.error == null) {
             Text(
                 if (active == ListKind.TODO) "Nothing on the list. Add items in Todoist on your phone."
@@ -281,7 +301,7 @@ internal fun ListsColumn(
                     row.task.sectionId?.takeIf { id -> list.sections.any { it.id == id } }
                 }
                 bySection[null]?.let { rows ->
-                    items(rows, key = { it.task.id }) { row -> TaskRowFor(row, state, onComplete) }
+                    items(rows, key = { it.task.id }) { row -> TaskRowFor(row, state, onComplete, priceTag) }
                 }
                 list.sections.forEach { section ->
                     val rows = bySection[section.id].orEmpty()
@@ -295,18 +315,23 @@ internal fun ListsColumn(
                                 modifier = Modifier.padding(top = 14.dp, bottom = 2.dp),
                             )
                         }
-                        items(rows, key = { it.task.id }) { row -> TaskRowFor(row, state, onComplete) }
+                        items(rows, key = { it.task.id }) { row -> TaskRowFor(row, state, onComplete, priceTag) }
                     }
                 }
             } else {
-                items(list.tasks, key = { it.task.id }) { row -> TaskRowFor(row, state, onComplete) }
+                items(list.tasks, key = { it.task.id }) { row -> TaskRowFor(row, state, onComplete, priceTag) }
             }
         }
     }
 }
 
 @Composable
-private fun TaskRowFor(row: DisplayTask, state: BoardState, onComplete: (String) -> Unit) {
+private fun TaskRowFor(
+    row: DisplayTask,
+    state: BoardState,
+    onComplete: (String) -> Unit,
+    trailing: (@Composable (TodoTask) -> Unit)? = null,
+) {
     TaskRow(
         row = row,
         today = state.today,
@@ -314,6 +339,7 @@ private fun TaskRowFor(row: DisplayTask, state: BoardState, onComplete: (String)
         evening = isEvening(state),
         done = row.task.id in state.completingIds,
         onComplete = onComplete,
+        trailing = trailing,
     )
 }
 
@@ -357,6 +383,7 @@ private fun TaskRow(
     evening: Boolean,
     done: Boolean,
     onComplete: (String) -> Unit,
+    trailing: (@Composable (TodoTask) -> Unit)? = null,
 ) {
     val task = row.task
     Row(
@@ -397,6 +424,7 @@ private fun TaskRow(
                 )
             }
         }
+        trailing?.invoke(task)
     }
 }
 
@@ -548,7 +576,10 @@ private fun NoCalendarsPrompt(state: BoardState, onAddAccount: () -> Unit) {
 private fun AddTaskOverlay(
     kind: ListKind,
     staples: List<String>,
+    search: StoreSearchState,
     onSubmit: (String, (String?) -> Unit) -> Unit,
+    onSearch: (String) -> Unit,
+    onPick: (StoreProduct, String, (String?) -> Unit) -> Unit,
     onClose: () -> Unit,
 ) {
     var text by remember { mutableStateOf("") }
@@ -582,6 +613,7 @@ private fun AddTaskOverlay(
         Modifier
             .fillMaxSize()
             .background(Ink.White)
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 48.dp, vertical = 40.dp)
     ) {
         Text(
@@ -609,10 +641,21 @@ private fun AddTaskOverlay(
                     imeAction = ImeAction.Done,
                 ),
                 keyboardActions = KeyboardActions(onDone = { submit() }),
-                modifier = Modifier.width(900.dp).focusRequester(focus),
+                modifier = Modifier.width(if (kind == ListKind.GROCERIES) 700.dp else 900.dp).focusRequester(focus),
             )
             Spacer(Modifier.width(16.dp))
             InkButton("Add", selected = true, onClick = submit)
+            if (kind == ListKind.GROCERIES) {
+                Spacer(Modifier.width(10.dp))
+                InkButton("Find prices") {
+                    if (text.isBlank()) message = "Type what you're after first, e.g. milk."
+                    else {
+                        keyboard?.hide()
+                        message = null
+                        onSearch(text)
+                    }
+                }
+            }
             Spacer(Modifier.width(10.dp))
             InkButton("Cancel") {
                 keyboard?.hide()
@@ -621,6 +664,15 @@ private fun AddTaskOverlay(
         }
         message?.let {
             Text(it, fontSize = 20.sp, color = Ink.Black, modifier = Modifier.padding(top = 16.dp))
+        }
+        if (kind == ListKind.GROCERIES) {
+            // Tap a result to add that exact product, with its price remembered for next time.
+            StoreResultsList(search) { product ->
+                message = "Adding ${product.name}..."
+                onPick(product, text) { error ->
+                    message = error ?: "Added ${product.name}, ${com.calendarviewbox.data.Prices.money(product.price)}."
+                }
+            }
         }
         if (staples.isNotEmpty()) {
             Text(

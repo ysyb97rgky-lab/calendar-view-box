@@ -187,6 +187,18 @@ class Prefs(context: Context) {
         get() = Household.mealsFromJson(sp.getString("meals_json", null))
         set(value) = sp.edit().putString("meals_json", Household.mealsToJson(value)).apply()
 
+    // ---- grocery prices (on this device for now; moves to the shared database later) ----
+
+    /** Product or price picked for a particular grocery item, by Todoist task id. */
+    var taskPrices: Map<String, StoreProduct>
+        get() = Prices.mapFromJson(sp.getString("task_prices", null))
+        set(value) = sp.edit().putString("task_prices", Prices.mapToJson(value)).apply()
+
+    /** Remembered prices by item name, so "milk" added from a phone gets its usual price. */
+    var namePrices: Map<String, StoreProduct>
+        get() = Prices.mapFromJson(sp.getString("name_prices", null))
+        set(value) = sp.edit().putString("name_prices", Prices.mapToJson(value)).apply()
+
     companion object {
         const val DEFAULT_WEATHER_PLACE = "Sydney, NSW"
         const val DEFAULT_GROCERIES_PROJECT = "Groceries"

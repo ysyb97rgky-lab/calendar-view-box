@@ -25,6 +25,10 @@ import com.calendarviewbox.data.DayWeather
 import com.calendarviewbox.data.DinnerPlan
 import com.calendarviewbox.data.EventItem
 import com.calendarviewbox.data.Household
+import com.calendarviewbox.data.STORE_COLES
+import com.calendarviewbox.data.STORE_WOOLWORTHS
+import com.calendarviewbox.data.StoreProduct
+import com.calendarviewbox.data.StoreResults
 import com.calendarviewbox.data.TodoTask
 import com.calendarviewbox.data.Weather
 import com.calendarviewbox.ui.CalendarArea
@@ -108,6 +112,15 @@ class BoardRenderTest {
             chores = chores,
             dinners = dinners,
             recentMeals = listOf("Tacos", "Pizza"),
+            taskPrices = mapOf("t1" to StoreProduct(STORE_WOOLWORTHS, "1", "Norco Full Cream Milk", "3L", 4.5, 5.0, "$1.50 / 1L", true)),
+            namePrices = mapOf("book car service" to StoreProduct("Other", null, "Book car service", null, 120.0)),
+            storeSearch = StoreSearchState(
+                query = "milk",
+                results = listOf(
+                    StoreResults(STORE_WOOLWORTHS, listOf(StoreProduct(STORE_WOOLWORTHS, "1", "Norco Full Cream Milk", "3L", 4.5))),
+                    StoreResults(STORE_COLES, emptyList(), "Coles search isn't working right now."),
+                ),
+            ),
         )
     }
 
@@ -138,6 +151,8 @@ class BoardRenderTest {
         }
         state = state.copy(mode = CalendarMode.WEEK, now = LocalTime.of(9, 0), offlineSinceMillis = null)
         compose.waitForIdle()
+        state = state.copy(activeList = ListKind.GROCERIES)
+        compose.waitForIdle()
         state = state.copy(chores = emptyList(), dinners = emptyList())
         compose.waitForIdle()
         state = state.copy(events = emptyList(), weather = null)
@@ -166,6 +181,26 @@ class BoardRenderTest {
             }
         }
         compose.waitForIdle()
+    }
+
+    @Test
+    fun priceEditorDraws() {
+        val vm = BoardViewModel(ApplicationProvider.getApplicationContext())
+        val state = sampleState()
+        compose.setContent {
+            InkTheme { com.calendarviewbox.ui.PriceEditorOverlay(state.groceries.tasks.first().task, state, vm, onClose = {}) }
+        }
+        compose.waitForIdle()
+    }
+
+    @Test
+    fun quantitiesAndKeys() {
+        val q = com.calendarviewbox.data.Prices.quantity("2x Milk")
+        org.junit.Assert.assertEquals(2, q.count)
+        org.junit.Assert.assertEquals("Milk", q.name)
+        org.junit.Assert.assertEquals(3, com.calendarviewbox.data.Prices.quantity("Bananas x3").count)
+        org.junit.Assert.assertEquals("milk", com.calendarviewbox.data.Prices.key("2 x  Milk "))
+        org.junit.Assert.assertEquals(4.95, com.calendarviewbox.data.Prices.parseMoney("$4.95")!!, 0.001)
     }
 
     @Test

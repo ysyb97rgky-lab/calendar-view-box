@@ -71,9 +71,11 @@ class TodoistClient(private val token: String) {
     }
 
     /** Adds a plain item to the project. Dates typed here aren't parsed; add those from the phone. */
-    suspend fun addTask(content: String, projectId: String) {
+    /** Returns the new task's id, when Todoist sends it back. */
+    suspend fun addTask(content: String, projectId: String): String? {
         val body = JSONObject().put("content", content).put("project_id", projectId).toString()
-        withContext(Dispatchers.IO) { request("POST", "$base/tasks", body) }
+        val response = withContext(Dispatchers.IO) { request("POST", "$base/tasks", body) }
+        return runCatching { JSONObject(response).optString("id").takeIf { it.isNotBlank() } }.getOrNull()
     }
 
     private fun parseTask(o: JSONObject): TodoTask {

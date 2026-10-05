@@ -24,6 +24,10 @@ import com.calendarviewbox.data.DinnerPlan
 import com.calendarviewbox.data.Household
 import com.calendarviewbox.data.MealCount
 import com.calendarviewbox.data.Person
+import com.calendarviewbox.data.Prices
+import com.calendarviewbox.data.StoreProduct
+import com.calendarviewbox.data.StoreResults
+import com.calendarviewbox.data.StoreSearch
 import com.calendarviewbox.data.CalendarMode
 import com.calendarviewbox.data.CalendarRepository
 import com.calendarviewbox.data.EventItem
@@ -72,6 +76,12 @@ enum class ListKind(val key: String, val title: String) {
     GROCERIES("groceries", "Groceries"),
 }
 
+data class StoreSearchState(
+    val query: String = "",
+    val loading: Boolean = false,
+    val results: List<StoreResults> = emptyList(),
+)
+
 data class TaskList(
     val tasks: List<DisplayTask> = emptyList(),
     val sections: List<TodoSection> = emptyList(),
@@ -113,14 +123,22 @@ data class BoardState(
     val dinners: List<DinnerPlan> = emptyList(),
     /** Meals used before, most used first, for one-tap picks. */
     val recentMeals: List<String> = emptyList(),
+    val taskPrices: Map<String, StoreProduct> = emptyMap(),
+    val namePrices: Map<String, StoreProduct> = emptyMap(),
+    val storeSearch: StoreSearchState = StoreSearchState(),
 ) {
     fun person(id: String?): Person? = household.firstOrNull { it.id == id }
+
+    /** The price for a grocery item: one picked for it, or the remembered price for its name. */
+    fun priceFor(task: TodoTask): StoreProduct? = taskPrices[task.id] ?: namePrices[Prices.key(task.content)]
     fun list(kind: ListKind): TaskList = if (kind == ListKind.TODO) todo else groceries
 }
 
 class BoardViewModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs = Prefs(app)
+    private val storeSearch = StoreSearch(app)
+    private var searchJob: Job? = null
     private val calendarRepo = CalendarRepository(app)
     private val connectivity = app.getSystemService(ConnectivityManager::class.java)
 
@@ -200,6 +218,8 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
             chores = prefs.chores,
             dinners = prefs.dinners,
             recentMeals = recentMealNames(prefs.meals),
+            taskPrices = prefs.taskPrices,
+            namePrices = prefs.namePrices,
             weather = prefs.loadWeather(),
             weatherPlace = prefs.cachedPlace(prefs.weatherPlace)?.label,
         )
@@ -346,6 +366,74 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         viewModelScope.launch { refreshLists() }
+    }
+
+    // ---- grocery prices ----
+
+    /** Searches Woolworths and Coles. Results arrive in state.storeSearch. */
+    fun searchStores(query: String) {
+        val q = Prices.quantity(query).name.trim()
+        if (q.isEmpty()) return
+        searchJob?.cancel()
+        _state.update { it.copy(storeSearch = StoreSearchState(query = q, loading = true)) }
+        searchJob = viewModelScope.launch {
+            val results = storeSearch.search(q)
+            _state.update { it.copy(storeSearch = StoreSearchState(query = q, loading = false, results = results)) }
+        }
+    }
+
+    fun clearStoreSearch() {
+        searchJob?.cancel()
+        _state.update { it.copy(storeSearch = StoreSearchState()) }
+    }
+
+    /** Adds a found product to Groceries and remembers its price under both names. */
+    fun addGroceryProduct(product: StoreProduct, typed: String, onResult: (String?) -> Unit) {
+        val content = listOfNotNull(product.name, product.size).joinToString(" ")
+        if (_state.value.groceries.tasks.any { it.task.content.equals(content, ignoreCase = true) }) {
+            onResult("$content is already on the list.")
+            return
+        }
+        listSwitchedAt = System.currentTimeMillis()
+        viewModelScope.launch {
+            try {
+                val client = TodoistClient(prefs.todoistToken)
+                val projectId = resolveProjectId(client, ListKind.GROCERIES)
+                if (projectId == null) {
+                    onResult("No Groceries project found. Check the name in Settings.")
+                    return@launch
+                }
+                val id = client.addTask(content, projectId)
+                markOnline()
+                rememberPrice(id, listOf(content, typed), product)
+                onResult(null)
+                refreshLists()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (isNetworkProblem(e)) markOffline()
+                onResult("Couldn't add it: ${e.message}")
+            }
+        }
+    }
+
+    /** Links a product, or a typed price, to an item already on the list. */
+    fun setItemPrice(task: TodoTask, product: StoreProduct) {
+        rememberPrice(task.id, listOf(task.content), product)
+    }
+
+    fun clearItemPrice(task: TodoTask) {
+        val key = Prices.key(task.content)
+        prefs.taskPrices = prefs.taskPrices - task.id
+        prefs.namePrices = prefs.namePrices - key
+        _state.update { it.copy(taskPrices = prefs.taskPrices, namePrices = prefs.namePrices) }
+    }
+
+    private fun rememberPrice(taskId: String?, names: List<String>, product: StoreProduct) {
+        if (taskId != null) prefs.taskPrices = prefs.taskPrices + (taskId to product)
+        val keys = names.map { Prices.key(it) }.filter { it.isNotEmpty() }
+        prefs.namePrices = prefs.namePrices + keys.associateWith { product }
+        _state.update { it.copy(taskPrices = prefs.taskPrices, namePrices = prefs.namePrices) }
     }
 
     // ---- household: people ----
@@ -746,6 +834,14 @@ class BoardViewModel(app: Application) : AndroidViewModel(app) {
             }
             val now = System.currentTimeMillis()
             prefs.saveTasks(kind.key, tasks, now)
+            if (kind == ListKind.GROCERIES) {
+                val ids = tasks.map { it.id }.toSet()
+                val kept = prefs.taskPrices.filterKeys { it in ids }
+                if (kept.size != prefs.taskPrices.size) {
+                    prefs.taskPrices = kept
+                    _state.update { it.copy(taskPrices = kept) }
+                }
+            }
             markOnline()
             setList {
                 it.copy(
