@@ -3,7 +3,6 @@ package com.calendarviewbox.data
 import android.annotation.SuppressLint
 import android.content.Context
 import android.webkit.CookieManager
-import android.webkit.JavascriptInterface
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -15,6 +14,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
+import org.json.JSONTokener
 import java.net.URLEncoder
 import kotlin.coroutines.resume
 
@@ -60,21 +60,33 @@ class StoreSearch(private val context: Context) {
 
     // ---------------- Woolworths ----------------
 
-    private suspend fun woolworths(query: String): List<StoreProduct> {
-        val raw = readFromPage(searchUrl(STORE_WOOLWORTHS, query), woolworthsScript(query))
-        return parseWoolworths(JSONObject(raw).getJSONObject("data"))
-    }
+    private suspend fun woolworths(query: String): List<StoreProduct> =
+        parseProducts(STORE_WOOLWORTHS, readFromPage(searchUrl(STORE_WOOLWORTHS, query), woolworthsScript(query)))
 
     /**
      * Woolworths' own search API, called from inside its page so it carries the site's cookies.
      * Waits a moment first (the site's bot check sets cookies after load) and retries a few times.
+     * Leaves a short list of products in window.__cvbResult for the app to collect.
      */
     private fun woolworthsScript(query: String): String = """
         (function(){
-          if (window.__cvb) return; window.__cvb = true;
+          if (window.__cvb) return "running"; window.__cvb = true;
           var q = ${JSONObject.quote(query)};
           var attempt = 0;
-          function done(o){ try { CVB.result(JSON.stringify(o)); } catch (e) {} }
+          function finish(list){ window.__cvbResult = JSON.stringify({ ok: true, products: list }); }
+          function problem(o){ o.attempt = attempt; window.__cvbProblem = JSON.stringify(o); }
+          function compact(j){
+            var out = [];
+            (j.Products || []).forEach(function(g){
+              (g.Products || [g]).forEach(function(p){
+                if (p == null || p.Price == null) return;
+                out.push({ id: String(p.Stockcode), name: String(p.DisplayName || p.Name || "").trim(),
+                  size: p.PackageSize || "", price: p.Price, was: p.WasPrice || null,
+                  unit: p.CupString || "", special: !!p.IsOnSpecial });
+              });
+            });
+            return out.slice(0, 10);
+          }
           var body = { Filters: [], IsSpecial: false, Location: "/shop/search/products?searchTerm=" + encodeURIComponent(q),
             PageNumber: 1, PageSize: 24, SearchTerm: q, SortType: "TraderRelevance",
             IsRegisteredRewardCardPromotion: null, ExcludeSearchTypes: ["UntraceableVendors"],
@@ -83,9 +95,9 @@ class StoreSearch(private val context: Context) {
             fetch("/apis/ui/Search/products?searchTerm=" + encodeURIComponent(q) + "&pageNumber=1&pageSize=24&sortType=TraderRelevance",
                   { credentials: "include", headers: { "Accept": "application/json" } })
               .then(function(r){ if (!r.ok) throw new Error("GET HTTP " + r.status); return r.json(); })
-              .then(function(j){ if (j && j.Products) done({ ok: true, data: j }); else throw new Error("GET had no Products"); })
+              .then(function(j){ if (j && j.Products) finish(compact(j)); else throw new Error("GET had no Products"); })
               .catch(function(e){
-                done({ ok: false, error: String(first) + " / " + String(e), attempt: attempt, title: document.title });
+                problem({ error: String(first) + " / " + String(e) });
                 if (attempt < 4) setTimeout(viaPost, 3000);
               });
           }
@@ -94,69 +106,39 @@ class StoreSearch(private val context: Context) {
             fetch("/apis/ui/Search/products", { method: "POST", credentials: "include",
                   headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(body) })
               .then(function(r){ if (!r.ok) throw new Error("POST HTTP " + r.status); return r.json(); })
-              .then(function(j){ if (j && j.Products) done({ ok: true, data: j }); else throw new Error("POST had no Products"); })
+              .then(function(j){ if (j && j.Products) finish(compact(j)); else throw new Error("POST had no Products"); })
               .catch(function(e){ viaGet(e); });
           }
           setTimeout(viaPost, 2500);
+          return "started";
         })();
     """.trimIndent()
 
-    private fun parseWoolworths(data: JSONObject): List<StoreProduct> {
-        val out = mutableListOf<StoreProduct>()
-        val groups = data.optJSONArray("Products") ?: JSONArray()
-        for (g in 0 until groups.length()) {
-            val group = groups.optJSONObject(g) ?: continue
-            val items = group.optJSONArray("Products") ?: JSONArray().put(group)
-            for (i in 0 until items.length()) {
-                val p = items.optJSONObject(i) ?: continue
-                if (p.isNull("Price")) continue
-                val price = p.optDouble("Price", Double.NaN).takeIf { !it.isNaN() } ?: continue
-                val was = p.optDouble("WasPrice", Double.NaN).takeIf { !it.isNaN() && it > price + 0.001 }
-                val name = p.optString("DisplayName").ifBlank { p.optString("Name") }.trim()
-                if (name.isEmpty()) continue
-                out += StoreProduct(
-                    store = STORE_WOOLWORTHS,
-                    productId = p.opt("Stockcode")?.toString(),
-                    name = name,
-                    size = p.optString("PackageSize").takeIf { it.isNotBlank() && !name.contains(it, ignoreCase = true) },
-                    price = price,
-                    wasPrice = was,
-                    unitPrice = p.optString("CupString").takeIf { it.isNotBlank() },
-                    special = p.optBoolean("IsOnSpecial") || was != null,
-                )
-            }
-        }
-        return out.take(MAX_PER_STORE)
-    }
-
     // ---------------- Coles ----------------
 
-    private suspend fun coles(query: String): List<StoreProduct> {
-        val raw = readFromPage(searchUrl(STORE_COLES, query), COLES_SCRIPT)
-        return parseColes(JSONObject(raw).getJSONArray("data"))
-    }
+    private suspend fun coles(query: String): List<StoreProduct> =
+        parseProducts(STORE_COLES, readFromPage(searchUrl(STORE_COLES, query), COLES_SCRIPT))
 
-    private fun parseColes(results: JSONArray): List<StoreProduct> {
+    /** Reads the short product list the page scripts leave behind. */
+    private fun parseProducts(store: String, raw: String): List<StoreProduct> {
+        val list = JSONObject(raw).optJSONArray("products") ?: JSONArray()
         val out = mutableListOf<StoreProduct>()
-        for (i in 0 until results.length()) {
-            val p = results.optJSONObject(i) ?: continue
-            if (p.optString("_type") != "PRODUCT") continue
-            val pricing = p.optJSONObject("pricing") ?: continue
-            val price = pricing.optDouble("now", Double.NaN).takeIf { !it.isNaN() && it > 0 } ?: continue
-            val was = pricing.optDouble("was", Double.NaN).takeIf { !it.isNaN() && it > price + 0.001 }
-            val brand = p.optString("brand").trim()
-            val baseName = p.optString("name").trim()
-            val name = if (brand.isNotEmpty() && !baseName.startsWith(brand, ignoreCase = true)) "$brand $baseName" else baseName
+        for (i in 0 until list.length()) {
+            val p = list.optJSONObject(i) ?: continue
+            val price = p.optDouble("price", Double.NaN).takeIf { !it.isNaN() && it > 0 } ?: continue
+            val name = p.optString("name").trim()
             if (name.isEmpty()) continue
+            val was = if (p.isNull("was")) null else p.optDouble("was", Double.NaN).takeIf { !it.isNaN() && it > price + 0.001 }
+            val size = p.optString("size").trim().takeIf { it.isNotEmpty() && !name.contains(it, ignoreCase = true) }
             out += StoreProduct(
-                store = STORE_COLES,
-                productId = p.opt("id")?.toString(),
+                store = store,
+                productId = p.optString("id").takeIf { it.isNotBlank() && it != "undefined" },
                 name = name,
-                size = p.optString("size").takeIf { it.isNotBlank() },
+                size = size,
                 price = price,
                 wasPrice = was,
-                unitPrice = pricing.optString("comparable").takeIf { it.isNotBlank() },
-                special = was != null || pricing.optBoolean("onlineSpecial") || !pricing.isNull("promotionType"),
+                unitPrice = p.optString("unit").takeIf { it.isNotBlank() },
+                special = p.optBoolean("special") || was != null,
             )
         }
         return out.take(MAX_PER_STORE)
@@ -164,25 +146,25 @@ class StoreSearch(private val context: Context) {
 
     // ---------------- hidden browser ----------------
 
-    private class Bridge(val onOk: (String) -> Unit, val onProblem: (String) -> Unit) {
-        @JavascriptInterface
-        fun result(json: String) {
-            val ok = runCatching { JSONObject(json).optBoolean("ok") }.getOrDefault(false)
-            if (ok) onOk(json) else onProblem(json)
-        }
-    }
-
     /** What the hidden page last reported, for the error message if nothing works. */
     private class PageReport {
         var page: String? = null
         var problem: String? = null
+        var started = false
         var loads = 0
+        var polls = 0
     }
 
+    /** evaluateJavascript hands back a JSON-encoded value; this turns it into a plain string, or null. */
+    private fun decode(value: String?): String? = runCatching {
+        val v = JSONTokener(value ?: "null").nextValue()
+        if (v == JSONObject.NULL) null else v.toString()
+    }.getOrNull()
+
     /**
-     * Opens [url] in a hidden WebView sized like a phone screen, runs [script] once each page finishes
-     * loading, and returns the first successful result. A bot-check page may come first; it keeps
-     * waiting for the real one. On failure, says what the page reported.
+     * Opens [url] in a hidden WebView sized like a phone screen and runs [script] once each page
+     * finishes loading. The script leaves its result on the page; this checks for it every
+     * 700ms. A bot-check page may come first; it keeps waiting for the real one.
      */
     @SuppressLint("SetJavaScriptEnabled")
     private suspend fun readFromPage(url: String, script: String): String = withContext(Dispatchers.Main) {
@@ -201,26 +183,45 @@ class StoreSearch(private val context: Context) {
                     )
                     view.layout(0, 0, 1080, 1920)
                     view.settings.blockNetworkImage = true // results only; skip product photos
-                    view.addJavascriptInterface(
-                        Bridge(
-                            onOk = { json -> view.post { if (cont.isActive) cont.resume(json) } },
-                            onProblem = { json -> view.post { report.problem = json.take(400) } },
-                        ),
-                        "CVB",
-                    )
                     view.webViewClient = object : WebViewClient() {
                         override fun onPageFinished(v: WebView, loadedUrl: String) {
                             report.loads++
                             report.page = "'" + v.title + "' at " + loadedUrl
-                            v.evaluateJavascript(script, null)
+                            v.evaluateJavascript(script) { started ->
+                                if (decode(started) == "started") report.started = true
+                            }
+                        }
+                    }
+                    val poll = object : Runnable {
+                        override fun run() {
+                            if (!cont.isActive) return
+                            report.polls++
+                            view.evaluateJavascript(POLL_SCRIPT) { value ->
+                                val state = decode(value)?.let { runCatching { JSONObject(it) }.getOrNull() }
+                                if (state != null) {
+                                    if (state.optBoolean("s")) report.started = true
+                                    if (!state.isNull("p")) report.problem = state.optString("p").take(300)
+                                    if (!state.isNull("r")) {
+                                        val r = state.optString("r")
+                                        if (runCatching { JSONObject(r).optBoolean("ok") }.getOrDefault(false)) {
+                                            if (cont.isActive) cont.resume(r)
+                                            return@evaluateJavascript
+                                        }
+                                    }
+                                }
+                                view.postDelayed(this, 700)
+                            }
                         }
                     }
                     view.loadUrl(url)
+                    view.postDelayed(poll, 1500)
                 }
             }
             result ?: throw StoreProblem(
                 buildString {
-                    append("No results after ${TIMEOUT_MS / 1000}s. Pages loaded: ${report.loads}.")
+                    append("No results after ${TIMEOUT_MS / 1000}s. Pages loaded: ${report.loads}. ")
+                    append(if (report.started) "Script ran. " else "Script didn't start. ")
+                    append("Checks: ${report.polls}.")
                     report.page?.let { append(" Last page: $it.") }
                     report.problem?.let { append(" Page reported: $it") }
                 }
@@ -235,6 +236,10 @@ class StoreSearch(private val context: Context) {
 
     companion object {
         private const val TIMEOUT_MS = 35_000L
+
+        /** Asks the page what the store script has found so far. */
+        private const val POLL_SCRIPT =
+            "(function(){ return JSON.stringify({ r: window.__cvbResult || null, p: window.__cvbProblem || null, s: !!window.__cvb }); })()"
         private const val MAX_PER_STORE = 10
 
         fun searchUrl(store: String, query: String): String {
@@ -271,19 +276,27 @@ class StoreSearch(private val context: Context) {
          */
         private val COLES_SCRIPT = """
             (function(){
-              if (window.__cvb) return; window.__cvb = true;
+              if (window.__cvb) return "running"; window.__cvb = true;
               var tries = 0;
-              function done(o){ try { CVB.result(JSON.stringify(o)); } catch (e) {} }
+              function finish(list){ window.__cvbResult = JSON.stringify({ ok: true, products: list.slice(0, 10) }); }
+              function fromData(results){
+                return results.filter(function(r){ return r && r._type === "PRODUCT"; }).map(function(r){
+                  var pr = r.pricing || {};
+                  var brand = r.brand || "", name = r.name || "";
+                  return { id: String(r.id), name: (brand && name.indexOf(brand) !== 0 ? brand + " " : "") + name,
+                    size: r.size || "", price: pr.now, was: pr.was || null, unit: pr.comparable || "",
+                    special: !!(pr.was && pr.was > pr.now) || !!pr.onlineSpecial || !!pr.promotionType };
+                });
+              }
               function fromTiles(){
-                var tiles = document.querySelectorAll('[data-testid="product-tile"], section.product__tile, .product__tile');
                 var out = [];
-                tiles.forEach(function(t){
+                document.querySelectorAll('[data-testid="product-tile"], section.product__tile, .product__tile').forEach(function(t){
                   var title = t.querySelector('[data-testid="product-title"], .product__title, h2, h3');
                   var price = t.querySelector('.price__value, [data-testid="product-pricing"] span, [class*="price__value"]');
                   if (!title || !price) return;
                   var p = parseFloat(price.textContent.replace(/[^0-9.]/g, ""));
                   if (!isFinite(p)) return;
-                  out.push({ _type: "PRODUCT", name: title.textContent.trim(), brand: "", size: "", pricing: { now: p } });
+                  out.push({ id: "", name: title.textContent.trim(), size: "", price: p, was: null, unit: "", special: false });
                 });
                 return out;
               }
@@ -297,20 +310,19 @@ class StoreSearch(private val context: Context) {
                     var pp = nd && nd.props && nd.props.pageProps;
                     keys = pp ? Object.keys(pp).join(",") : "no pageProps";
                     var sr = pp && pp.searchResults;
-                    if (sr && sr.results) { done({ ok: true, data: sr.results }); return; }
+                    if (sr && sr.results) { finish(fromData(sr.results)); return; }
                   } catch (e) { keys = "unreadable: " + e; }
                 }
-                if (tries > 10) {
+                if (tries > 6) {
                   var found = fromTiles();
-                  if (found.length) { done({ ok: true, data: found }); return; }
+                  if (found.length) { finish(found); return; }
                 }
-                if (tries % 10 === 0 || tries > 60) {
-                  done({ ok: false, error: "no results yet", title: document.title,
-                         nextData: !!el, pageProps: keys, tiles: document.querySelectorAll('[data-testid="product-tile"]').length });
-                }
+                window.__cvbProblem = JSON.stringify({ error: "no results yet", title: document.title, nextData: !!el,
+                  pageProps: keys, tiles: document.querySelectorAll('[data-testid="product-tile"]').length });
                 if (tries <= 60) setTimeout(attempt, 500);
               }
               attempt();
+              return "started";
             })();
         """.trimIndent()
     }
