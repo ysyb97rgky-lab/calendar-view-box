@@ -107,7 +107,7 @@ fun GroceryTotal(tasks: List<DisplayTask>, state: BoardState) {
 
 /** Woolworths and Coles results side by side, so prices are easy to compare. Tap one to pick it. */
 @Composable
-fun StoreResultsList(search: StoreSearchState, onPick: (StoreProduct) -> Unit) {
+fun StoreResultsList(search: StoreSearchState, onPick: (StoreProduct) -> Unit, onOpenStore: ((String, String) -> Unit)? = null) {
     if (search.loading) {
         Text(
             "Searching Woolworths and Coles for \"${search.query}\"... this can take a few seconds.",
@@ -124,6 +124,11 @@ fun StoreResultsList(search: StoreSearchState, onPick: (StoreProduct) -> Unit) {
                 Text(store.store, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Ink.Black)
                 Box(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp).height(2.dp).background(Ink.Black))
                 store.problem?.let { Text(it, fontSize = 18.sp, color = Ink.DarkGrey, modifier = Modifier.padding(vertical = 8.dp)) }
+                // What the store's page reported, so it can be fixed (take a photo of this).
+                store.detail?.let { Text("Details: $it", fontSize = 13.sp, color = Ink.DarkGrey, modifier = Modifier.padding(bottom = 8.dp)) }
+                if (store.problem != null && store.pageUrl != null && onOpenStore != null) {
+                    InkButton("Open ${store.store} page", small = true) { onOpenStore(store.store, store.pageUrl) }
+                }
                 if (store.problem == null && store.products.isEmpty()) {
                     Text("No matches.", fontSize = 18.sp, color = Ink.DarkGrey, modifier = Modifier.padding(vertical = 8.dp))
                 }
@@ -166,7 +171,13 @@ private fun ProductRow(p: StoreProduct, onPick: (StoreProduct) -> Unit) {
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun PriceEditorOverlay(task: TodoTask, state: BoardState, vm: BoardViewModel, onClose: () -> Unit) {
+fun PriceEditorOverlay(
+    task: TodoTask,
+    state: BoardState,
+    vm: BoardViewModel,
+    onClose: () -> Unit,
+    onOpenStore: ((String, String) -> Unit)? = null,
+) {
     val current = state.priceFor(task)
     val name = Prices.quantity(task.content).name
     var amount by remember(task.id) { mutableStateOf(current?.takeIf { it.store == STORE_OTHER || it.productId == null }?.price?.let { "%.2f".format(it) } ?: "") }
@@ -199,10 +210,10 @@ fun PriceEditorOverlay(task: TodoTask, state: BoardState, vm: BoardViewModel, on
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             InkButton("Search for \"$name\"", selected = true) { vm.searchStores(name) }
         }
-        StoreResultsList(state.storeSearch) { product ->
+        StoreResultsList(state.storeSearch, onPick = { product ->
             vm.setItemPrice(task, product)
             message = "Using ${product.name} at ${product.store}, ${Prices.money(product.price)}."
-        }
+        }, onOpenStore = onOpenStore)
 
         Text("Or type a price", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Ink.Black,
             modifier = Modifier.padding(top = 32.dp, bottom = 10.dp))
@@ -259,4 +270,38 @@ fun Tag(text: String) {
             .border(1.5.dp, Ink.Black, RoundedCornerShape(6.dp))
             .padding(horizontal = 6.dp)
     ) { Text(text, fontSize = 13.sp, color = Ink.Black) }
+}
+
+
+/**
+ * The store's real website inside the app. Shows what the store is sending, and if it asks you
+ * to prove you're human, doing it here lets later searches through.
+ */
+@android.annotation.SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun StoreWebOverlay(store: String, url: String, onClose: () -> Unit) {
+    Column(Modifier.fillMaxSize().background(Ink.White).padding(horizontal = 32.dp, vertical = 24.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("$store website", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = Ink.Black)
+            Spacer(Modifier.weight(1f))
+            InkButton("Close", selected = true, onClick = onClose)
+        }
+        Text(
+            "If it asks you to confirm you're human, do it here, then close this and search again.",
+            fontSize = 17.sp,
+            color = Ink.DarkGrey,
+            modifier = Modifier.padding(top = 6.dp, bottom = 12.dp),
+        )
+        androidx.compose.ui.viewinterop.AndroidView(
+            factory = { ctx ->
+                android.webkit.WebView(ctx).apply {
+                    com.calendarviewbox.data.StoreSearch.configure(this, ctx)
+                    webViewClient = android.webkit.WebViewClient()
+                    loadUrl(url)
+                }
+            },
+            onRelease = { it.destroy() },
+            modifier = Modifier.fillMaxWidth().weight(1f).border(2.dp, Ink.Black),
+        )
+    }
 }

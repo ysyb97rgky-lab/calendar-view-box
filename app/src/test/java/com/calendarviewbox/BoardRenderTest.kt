@@ -118,7 +118,7 @@ class BoardRenderTest {
                 query = "milk",
                 results = listOf(
                     StoreResults(STORE_WOOLWORTHS, listOf(StoreProduct(STORE_WOOLWORTHS, "1", "Norco Full Cream Milk", "3L", 4.5))),
-                    StoreResults(STORE_COLES, emptyList(), "Coles search isn't working right now."),
+                    StoreResults(STORE_COLES, emptyList(), "Coles search isn't working right now.", "No results after 35s. Pages loaded: 1.", "https://www.coles.com.au/search/products?q=milk"),
                 ),
             ),
         )

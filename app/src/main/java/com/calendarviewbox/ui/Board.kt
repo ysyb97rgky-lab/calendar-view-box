@@ -84,6 +84,8 @@ fun App(
     var adding by remember { mutableStateOf(false) }
     var openDay by remember { mutableStateOf<LocalDate?>(null) }
     var pricing by remember { mutableStateOf<TodoTask?>(null) }
+    var storePage by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val openStore: (String, String) -> Unit = { store, url -> storePage = store to url }
     val base = LocalDensity.current
 
     InkTheme {
@@ -124,7 +126,7 @@ fun App(
                     pricing?.let { task ->
                         val close = { pricing = null; vm.clearStoreSearch(); vm.panelClosed() }
                         BackHandler { close() }
-                        PriceEditorOverlay(task, state, vm, onClose = close)
+                        PriceEditorOverlay(task, state, vm, onClose = close, onOpenStore = openStore)
                     }
                     openDay?.let { day ->
                         BackHandler { openDay = null; vm.panelClosed() }
@@ -139,9 +141,14 @@ fun App(
                             onSubmit = { text, done -> vm.addTask(state.activeList, text, done) },
                             onSearch = vm::searchStores,
                             onPick = { product, typed, done -> vm.addGroceryProduct(product, typed, done) },
+                            onOpenStore = openStore,
                             onClose = { adding = false; vm.clearStoreSearch(); vm.panelClosed() },
                         )
                     }
+                }
+                storePage?.let { (store, url) ->
+                    BackHandler { storePage = null }
+                    StoreWebOverlay(store, url, onClose = { storePage = null; vm.panelClosed() })
                 }
                 FlashOverlay(state.flashTick)
             }
@@ -581,6 +588,7 @@ private fun AddTaskOverlay(
     onSearch: (String) -> Unit,
     onPick: (StoreProduct, String, (String?) -> Unit) -> Unit,
     onClose: () -> Unit,
+    onOpenStore: ((String, String) -> Unit)? = null,
 ) {
     var text by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -667,12 +675,12 @@ private fun AddTaskOverlay(
         }
         if (kind == ListKind.GROCERIES) {
             // Tap a result to add that exact product, with its price remembered for next time.
-            StoreResultsList(search) { product ->
+            StoreResultsList(search, onPick = { product ->
                 message = "Adding ${product.name}..."
                 onPick(product, text) { error ->
                     message = error ?: "Added ${product.name}, ${com.calendarviewbox.data.Prices.money(product.price)}."
                 }
-            }
+            }, onOpenStore = onOpenStore)
         }
         if (staples.isNotEmpty()) {
             Text(
