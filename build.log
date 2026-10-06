@@ -1,0 +1,201 @@
+Downloading https://services.gradle.org/distributions/gradle-8.9-bin.zip
+............10%.............20%.............30%.............40%.............50%.............60%.............70%.............80%.............90%.............100%
+
+Welcome to Gradle 8.9!
+
+Here are the highlights of this release:
+ - Enhanced Error and Warning Messages
+ - IDE Integration Improvements
+ - Daemon JVM Information
+
+For more details see https://docs.gradle.org/8.9/release-notes.html
+
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.9/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:generateDebugBuildConfig
+> Task :app:generateDebugResValues
+> Task :app:checkDebugAarMetadata
+> Task :app:mapDebugSourceSetPaths
+> Task :app:generateDebugResources
+> Task :app:packageDebugResources
+> Task :app:mergeDebugResources
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug
+> Task :app:parseDebugLocalResources
+> Task :app:processDebugMainManifest
+> Task :app:processDebugManifest
+> Task :app:processDebugManifestForPackage
+> Task :app:javaPreCompileDebug
+> Task :app:mergeDebugShaders
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets
+> Task :app:compressDebugAssets
+> Task :app:desugarDebugFileDependencies
+> Task :app:processDebugResources
+> Task :app:checkDebugDuplicateClasses
+> Task :app:compileDebugKotlin
+> Task :app:mergeExtDexDebug
+> Task :app:compileDebugJavaWithJavac
+> Task :app:dexBuilderDebug
+> Task :app:mergeDebugGlobalSynthetics
+> Task :app:processDebugJavaRes
+> Task :app:mergeLibDexDebug
+> Task :app:mergeDebugJniLibFolders
+> Task :app:validateSigningDebug
+> Task :app:writeDebugAppMetadata
+> Task :app:mergeProjectDexDebug
+> Task :app:mergeDebugNativeLibs
+> Task :app:writeDebugSigningConfigVersions
+
+> Task :app:stripDebugDebugSymbols
+Unable to strip the following libraries, packaging them as they are: libandroidx.graphics.path.so.
+
+> Task :app:mergeDebugJavaResource
+> Task :app:packageDebug
+> Task :app:createDebugApkListingFileRedirect
+> Task :app:assembleDebug
+
+BUILD SUCCESSFUL in 2m 25s
+37 actionable tasks: 37 executed
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.9/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:generateDebugBuildConfig UP-TO-DATE
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:processDebugResources UP-TO-DATE
+> Task :app:compileDebugKotlin UP-TO-DATE
+> Task :app:javaPreCompileDebug UP-TO-DATE
+> Task :app:compileDebugJavaWithJavac UP-TO-DATE
+> Task :app:preDebugUnitTestBuild UP-TO-DATE
+> Task :app:mergeDebugShaders UP-TO-DATE
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:javaPreCompileDebugUnitTest
+> Task :app:bundleDebugClassesToRuntimeJar
+> Task :app:bundleDebugClassesToCompileJar
+> Task :app:mergeDebugAssets UP-TO-DATE
+> Task :app:packageDebugUnitTestForUnitTest
+> Task :app:generateDebugUnitTestConfig
+> Task :app:processDebugJavaRes UP-TO-DATE
+> Task :app:compileDebugUnitTestKotlin
+> Task :app:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :app:processDebugUnitTestJavaRes
+
+> Task :app:testDebugUnitTest
+
+BoardScreenshotTest > twoWeeks1280 FAILED
+    androidx.compose.ui.test.ComposeTimeoutException: Condition still not satisfied after 2000 ms
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.waitUntil(WindowCapture.android.kt:181)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.forceRedraw(WindowCapture.android.kt:124)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1$1.invoke(WindowCapture.android.kt:51)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1$1.invoke(WindowCapture.android.kt:49)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.withDrawingEnabled(WindowCapture.android.kt:91)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.access$withDrawingEnabled(WindowCapture.android.kt:1)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1.invoke(WindowCapture.android.kt:49)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1.invoke(WindowCapture.android.kt:47)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.runWithRetryWhenNoData(WindowCapture.android.kt:66)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.captureRegionToImage(WindowCapture.android.kt:47)
+        at androidx.compose.ui.test.AndroidImageHelpers_androidKt.captureToImage(AndroidImageHelpers.android.kt:97)
+        at com.calendarviewbox.BoardScreenshotTest.shoot(BoardScreenshotTest.kt:37)
+        at com.calendarviewbox.BoardScreenshotTest.twoWeeks1280(BoardScreenshotTest.kt:60)
+
+BoardScreenshotTest > month1280 FAILED
+    androidx.compose.ui.test.ComposeTimeoutException: Condition still not satisfied after 2000 ms
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.waitUntil(WindowCapture.android.kt:181)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.forceRedraw(WindowCapture.android.kt:124)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1$1.invoke(WindowCapture.android.kt:51)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1$1.invoke(WindowCapture.android.kt:49)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.withDrawingEnabled(WindowCapture.android.kt:91)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.access$withDrawingEnabled(WindowCapture.android.kt:1)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1.invoke(WindowCapture.android.kt:49)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1.invoke(WindowCapture.android.kt:47)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.runWithRetryWhenNoData(WindowCapture.android.kt:66)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.captureRegionToImage(WindowCapture.android.kt:47)
+        at androidx.compose.ui.test.AndroidImageHelpers_androidKt.captureToImage(AndroidImageHelpers.android.kt:97)
+        at com.calendarviewbox.BoardScreenshotTest.shoot(BoardScreenshotTest.kt:37)
+        at com.calendarviewbox.BoardScreenshotTest.month1280(BoardScreenshotTest.kt:56)
+
+BoardScreenshotTest > week1067 FAILED
+    androidx.compose.ui.test.ComposeTimeoutException: Condition still not satisfied after 2000 ms
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.waitUntil(WindowCapture.android.kt:181)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.forceRedraw(WindowCapture.android.kt:124)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1$1.invoke(WindowCapture.android.kt:51)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1$1.invoke(WindowCapture.android.kt:49)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.withDrawingEnabled(WindowCapture.android.kt:91)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.access$withDrawingEnabled(WindowCapture.android.kt:1)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1.invoke(WindowCapture.android.kt:49)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1.invoke(WindowCapture.android.kt:47)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.runWithRetryWhenNoData(WindowCapture.android.kt:66)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.captureRegionToImage(WindowCapture.android.kt:47)
+        at androidx.compose.ui.test.AndroidImageHelpers_androidKt.captureToImage(AndroidImageHelpers.android.kt:97)
+        at com.calendarviewbox.BoardScreenshotTest.shoot(BoardScreenshotTest.kt:37)
+        at com.calendarviewbox.BoardScreenshotTest.shoot$default(BoardScreenshotTest.kt:33)
+        at com.calendarviewbox.BoardScreenshotTest.week1067(BoardScreenshotTest.kt:52)
+
+BoardScreenshotTest > week1280 FAILED
+    androidx.compose.ui.test.ComposeTimeoutException: Condition still not satisfied after 2000 ms
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.waitUntil(WindowCapture.android.kt:181)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.forceRedraw(WindowCapture.android.kt:124)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1$1.invoke(WindowCapture.android.kt:51)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1$1.invoke(WindowCapture.android.kt:49)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.withDrawingEnabled(WindowCapture.android.kt:91)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.access$withDrawingEnabled(WindowCapture.android.kt:1)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1.invoke(WindowCapture.android.kt:49)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1.invoke(WindowCapture.android.kt:47)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.runWithRetryWhenNoData(WindowCapture.android.kt:66)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.captureRegionToImage(WindowCapture.android.kt:47)
+        at androidx.compose.ui.test.AndroidImageHelpers_androidKt.captureToImage(AndroidImageHelpers.android.kt:97)
+        at com.calendarviewbox.BoardScreenshotTest.shoot(BoardScreenshotTest.kt:37)
+        at com.calendarviewbox.BoardScreenshotTest.shoot$default(BoardScreenshotTest.kt:33)
+        at com.calendarviewbox.BoardScreenshotTest.week1280(BoardScreenshotTest.kt:48)
+
+BoardScreenshotTest > week1600 FAILED
+    androidx.compose.ui.test.ComposeTimeoutException: Condition still not satisfied after 2000 ms
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.waitUntil(WindowCapture.android.kt:181)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.forceRedraw(WindowCapture.android.kt:124)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1$1.invoke(WindowCapture.android.kt:51)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1$1.invoke(WindowCapture.android.kt:49)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.withDrawingEnabled(WindowCapture.android.kt:91)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.access$withDrawingEnabled(WindowCapture.android.kt:1)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1.invoke(WindowCapture.android.kt:49)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt$captureRegionToImage$1.invoke(WindowCapture.android.kt:47)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.runWithRetryWhenNoData(WindowCapture.android.kt:66)
+        at androidx.compose.ui.test.android.WindowCapture_androidKt.captureRegionToImage(WindowCapture.android.kt:47)
+        at androidx.compose.ui.test.AndroidImageHelpers_androidKt.captureToImage(AndroidImageHelpers.android.kt:97)
+        at com.calendarviewbox.BoardScreenshotTest.shoot(BoardScreenshotTest.kt:37)
+        at com.calendarviewbox.BoardScreenshotTest.shoot$default(BoardScreenshotTest.kt:33)
+        at com.calendarviewbox.BoardScreenshotTest.week1600(BoardScreenshotTest.kt:44)
+
+11 tests completed, 5 failed
+
+> Task :app:testDebugUnitTest FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:testDebugUnitTest'.
+> There were failing tests. See the report at: file:///home/runner/work/calendar-view-box/calendar-view-box/app/build/reports/tests/testDebugUnitTest/index.html
+
+* Try:
+> Run with --scan to get full insights.
+
+BUILD FAILED in 54s
+28 actionable tasks: 8 executed, 20 up-to-date
