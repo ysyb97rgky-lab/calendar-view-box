@@ -1,10 +1,9 @@
 package com.calendarviewbox
 
 import android.graphics.Bitmap
-import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onRoot
+import android.graphics.Canvas
+import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.calendarviewbox.data.CalendarMode
 import com.calendarviewbox.ui.InkTheme
 import org.junit.Rule
@@ -26,7 +25,7 @@ import java.time.LocalTime
 class BoardScreenshotTest {
 
     @get:Rule
-    val compose = createComposeRule()
+    val compose = createAndroidComposeRule<ComponentActivity>()
 
     private val helper = BoardRenderTest()
 
@@ -34,7 +33,10 @@ class BoardScreenshotTest {
         val state = helper.sampleState().copy(mode = mode, now = LocalTime.of(13, 30), offlineSinceMillis = null)
         compose.setContent { InkTheme { helper.TestBoard(state) } }
         compose.waitForIdle()
-        val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
+        // Draw the window straight into a bitmap (the test tool's own capture stalls here).
+        val view = compose.activity.window.decorView
+        val bitmap = Bitmap.createBitmap(view.width.coerceAtLeast(1), view.height.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+        compose.runOnUiThread { view.draw(Canvas(bitmap)) }
         val dir = File("build/screenshots").apply { mkdirs() }
         FileOutputStream(File(dir, "$name.png")).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }

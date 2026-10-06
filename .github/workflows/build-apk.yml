@@ -30,7 +30,12 @@ jobs:
       - name: Render test (catches crashes before release)
         run: |
           set -o pipefail
-          ./gradlew --no-daemon testDebugUnitTest 2>&1 | tee -a build.log
+          ./gradlew --no-daemon testDebugUnitTest --tests "com.calendarviewbox.BoardRenderTest" 2>&1 | tee -a build.log
+
+      # Layout pictures for review. Never blocks a release.
+      - name: Screenshots
+        continue-on-error: true
+        run: ./gradlew --no-daemon testDebugUnitTest --tests "com.calendarviewbox.BoardScreenshotTest"
 
       # If the build fails, keep the log on a separate branch so it can be read and fixed.
       - name: Save build log
