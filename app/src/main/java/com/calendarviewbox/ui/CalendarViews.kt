@@ -934,6 +934,6 @@ private fun AgendaRow(e: EventItem, day: LocalDate, state: BoardState) {
 /** Dinner and chores column: about a fifth of the screen in Week, narrower in 2 weeks. */
 @Composable
 private fun sideWidth(compact: Boolean): androidx.compose.ui.unit.Dp {
-    val screen = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.toFloat()
+    val screen = boardWidthDp()
     return if (compact) (screen * 0.13f).coerceIn(170f, 210f).dp else (screen * 0.18f).coerceIn(230f, 290f).dp
 }

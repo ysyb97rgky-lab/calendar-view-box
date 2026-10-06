@@ -145,3 +145,34 @@ fun formatShortTime(t: LocalTime, use24h: Boolean): String {
     val pattern = if (t.minute == 0) "ha" else "h:mma"
     return t.format(DateTimeFormatter.ofPattern(pattern, Locale.ENGLISH)).lowercase(Locale.ENGLISH)
 }
+
+
+/** How much the board is scaled to fit the screen (1 means the screen is 1600 x 1200 dp). */
+val LocalBoardFit = androidx.compose.runtime.staticCompositionLocalOf { 1f }
+
+/** The board is designed for 1600 x 1200 dp; this works out the scale for the actual screen. */
+fun boardFit(widthDp: Int, heightDp: Int): Float =
+    minOf(widthDp / 1600f, heightDp / 1200f).coerceIn(0.6f, 1.6f)
+
+/**
+ * Lays the board out as if the screen were 1600 x 1200 dp, then scales it to fit. The Boox's
+ * display-scaling setting changes how many dp the screen has; this keeps the layout the same
+ * at any setting. [textScale] is the text size chosen in Settings.
+ */
+@Composable
+fun FitToBoard(textScale: Float, content: @Composable () -> Unit) {
+    val conf = androidx.compose.ui.platform.LocalConfiguration.current
+    val base = androidx.compose.ui.platform.LocalDensity.current
+    val fit = boardFit(conf.screenWidthDp, conf.screenHeightDp)
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.ui.platform.LocalDensity provides
+            androidx.compose.ui.unit.Density(base.density * fit, base.fontScale * textScale),
+        LocalBoardFit provides fit,
+        content = content,
+    )
+}
+
+/** Screen width in the board's own units (about 1600 on any Boox setting). */
+@Composable
+fun boardWidthDp(): Float =
+    androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp / LocalBoardFit.current

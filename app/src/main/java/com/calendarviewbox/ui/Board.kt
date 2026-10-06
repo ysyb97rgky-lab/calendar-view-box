@@ -87,12 +87,8 @@ fun App(
     var pricing by remember { mutableStateOf<TodoTask?>(null) }
     var storePage by remember { mutableStateOf<Pair<String, String>?>(null) }
     val openStore: (String, String) -> Unit = { store, url -> storePage = store to url }
-    val base = LocalDensity.current
-
     InkTheme {
-        CompositionLocalProvider(
-            LocalDensity provides Density(base.density, base.fontScale * state.textScale)
-        ) {
+        FitToBoard(state.textScale) {
             Box(Modifier.fillMaxSize().background(Ink.White)) {
                 if (showSettings) {
                     BackHandler { showSettings = false }
@@ -227,7 +223,7 @@ internal fun HeaderStrip(state: BoardState, onMode: (CalendarMode) -> Unit) {
                 .background(Ink.Black)
         )
         // Fewer forecast days on narrower screens, so nothing overlaps.
-        val width = LocalConfiguration.current.screenWidthDp
+        val width = boardWidthDp()
         WeatherHeader(state, maxDays = when {
             width >= 1400 -> 4
             width >= 1150 -> 3
@@ -290,7 +286,7 @@ internal fun ListsColumn(
                 ListTab(ListKind.GROCERIES, state.groceries.tasks.size, active == ListKind.GROCERIES, onSwitch)
             }
             Spacer(Modifier.weight(1f))
-            InkButton("Add", onClick = onAdd)
+            InkButton("Add", small = true, onClick = onAdd)
         }
         Spacer(Modifier.height(10.dp))
 
@@ -742,4 +738,4 @@ private fun FlashOverlay(tick: Int) {
 /** Lists column width: a quarter of the screen, kept between 320dp and 420dp. */
 @Composable
 internal fun listsWidth(): androidx.compose.ui.unit.Dp =
-    (LocalConfiguration.current.screenWidthDp * 0.25f).coerceIn(320f, 420f).dp
+    (boardWidthDp() * 0.25f).coerceIn(320f, 420f).dp

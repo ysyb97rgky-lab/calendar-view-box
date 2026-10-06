@@ -126,7 +126,7 @@ class BoardRenderTest {
 
     /** Same layout as the real board, minus the ViewModel. */
     @Composable
-    internal fun TestBoard(state: BoardState) {
+    internal fun TestBoard(state: BoardState) = com.calendarviewbox.ui.FitToBoard(1f) {
         Column(Modifier.fillMaxSize().padding(24.dp)) {
             HeaderStrip(state, onMode = {})
             Row(Modifier.weight(1f).fillMaxWidth()) {

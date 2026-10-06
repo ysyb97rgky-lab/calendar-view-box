@@ -68,7 +68,11 @@ fun <T> ChipFlow(
                 }
                 shown--
             }
-            if (shown < 0) shown = 0
+            if (shown <= 0 && chips.isNotEmpty()) {
+                // Nothing fits beside the "+N more" label: show the first item rather than only the count.
+                shown = 1
+                indicator = null
+            }
         }
 
         val toPlace = chips.take(shown) + listOfNotNull(indicator)
