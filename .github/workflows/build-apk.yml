@@ -56,3 +56,22 @@ jobs:
             --title "Calendar View Box ($TAG)" \
             --notes "Built from commit ${{ github.sha }}. Download CalendarViewBox.apk on the Boox and tap it to install." \
             --latest
+
+      # Pictures of the board at several screen sizes, kept on the "screenshots" branch for review.
+      - name: Save screenshots
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ls app/build/screenshots/*.png >/dev/null 2>&1; then
+            git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" /tmp/shots
+            cd /tmp/shots
+            git config user.name "github-actions"
+            git config user.email "github-actions@users.noreply.github.com"
+            git checkout --orphan screenshots
+            git rm -rf . > /dev/null
+            cp "$GITHUB_WORKSPACE"/app/build/screenshots/*.png .
+            git add *.png
+            git commit -m "Screenshots for run ${{ github.run_number }}"
+            git push -f origin screenshots
+          fi

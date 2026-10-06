@@ -68,7 +68,7 @@ class BoardRenderTest {
         return EventItem(2, cal, title, null, "Notes <b>with</b> html", true, s.atStartOfDay(), s.plusDays(days - 1).atStartOfDay(), s, s.plusDays(days - 1))
     }
 
-    private fun sampleState(): BoardState {
+    internal fun sampleState(): BoardState {
         val events = listOf(
             allDay(4, "Labour Day", 0, 1),
             timed(1, "Gym", 0, 6, 60),
@@ -126,17 +126,17 @@ class BoardRenderTest {
 
     /** Same layout as the real board, minus the ViewModel. */
     @Composable
-    private fun TestBoard(state: BoardState) {
+    internal fun TestBoard(state: BoardState) {
         Column(Modifier.fillMaxSize().padding(24.dp)) {
             HeaderStrip(state, onMode = {})
             Row(Modifier.weight(1f).fillMaxWidth()) {
-                ListsColumn(state, onComplete = {}, onAdd = {}, onSwitch = {}, modifier = Modifier.width(400.dp).fillMaxHeight())
+                ListsColumn(state, onComplete = {}, onAdd = {}, onSwitch = {}, modifier = Modifier.width(com.calendarviewbox.ui.listsWidth()).fillMaxHeight())
                 Box(Modifier.width(2.dp).fillMaxHeight().background(Ink.Black))
                 Box(Modifier.weight(1f).fillMaxHeight()) {
                     CalendarArea(state, onOpenDay = {}, onTickChore = {})
                 }
             }
-            Footer(state, onRefresh = {}, onSettings = {}, onUpdate = {})
+            Footer(state, onMode = {}, onRefresh = {}, onSettings = {}, onUpdate = {})
         }
     }
 

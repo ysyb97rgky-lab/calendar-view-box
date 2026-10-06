@@ -42,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -178,7 +179,7 @@ private fun Board(
                 onAdd = onAdd,
                 onSwitch = vm::setActiveList,
                 onEditPrice = onEditPrice,
-                modifier = Modifier.width(400.dp).fillMaxHeight().padding(top = 18.dp, end = 26.dp),
+                modifier = Modifier.width(listsWidth()).fillMaxHeight().padding(top = 18.dp, end = 26.dp),
             )
             Box(Modifier.width(2.dp).fillMaxHeight().background(Ink.Black))
             Box(Modifier.weight(1f).fillMaxHeight().padding(start = 10.dp)) {
@@ -189,7 +190,7 @@ private fun Board(
                 }
             }
         }
-        Footer(state, onRefresh = vm::manualRefresh, onSettings = onOpenSettings, onUpdate = vm::installUpdate)
+        Footer(state, onMode = vm::setMode, onRefresh = vm::manualRefresh, onSettings = onOpenSettings, onUpdate = vm::installUpdate)
     }
 }
 
@@ -225,15 +226,20 @@ internal fun HeaderStrip(state: BoardState, onMode: (CalendarMode) -> Unit) {
                 .fillMaxHeight()
                 .background(Ink.Black)
         )
-        WeatherHeader(state)
+        // Fewer forecast days on narrower screens, so nothing overlaps.
+        val width = LocalConfiguration.current.screenWidthDp
+        WeatherHeader(state, maxDays = when {
+            width >= 1400 -> 4
+            width >= 1150 -> 3
+            else -> 2
+        })
         Spacer(Modifier.weight(1f))
-        ModeSwitch(state.mode, onMode)
     }
 }
 
 @Composable
 private fun ModeSwitch(mode: CalendarMode, onMode: (CalendarMode) -> Unit) {
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(8.dp)
     Row(
         Modifier
             .height(IntrinsicSize.Min)
@@ -247,11 +253,12 @@ private fun ModeSwitch(mode: CalendarMode, onMode: (CalendarMode) -> Unit) {
                 Modifier
                     .background(if (selected) Ink.Black else Ink.White)
                     .clickable(interactionSource = null, indication = null) { onMode(m) }
-                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
             ) {
                 Text(
                     m.label,
-                    fontSize = 20.sp,
+                    fontSize = 17.sp,
+                    maxLines = 1,
                     color = if (selected) Ink.White else Ink.Black,
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                 )
@@ -466,7 +473,13 @@ private fun dueLabel(
 
 /** Legend on the left; status, Update, Refresh and Settings on the right. */
 @Composable
-internal fun Footer(state: BoardState, onRefresh: () -> Unit, onSettings: () -> Unit, onUpdate: () -> Unit) {
+internal fun Footer(
+    state: BoardState,
+    onMode: (CalendarMode) -> Unit,
+    onRefresh: () -> Unit,
+    onSettings: () -> Unit,
+    onUpdate: () -> Unit,
+) {
     // Reads state.now (via the clock in the header), so the offline check reruns every minute.
     val offlineSince = state.offlineSinceMillis?.takeIf { System.currentTimeMillis() - it >= OFFLINE_GRACE_MS }
     Column(Modifier.fillMaxWidth()) {
@@ -484,10 +497,10 @@ internal fun Footer(state: BoardState, onRefresh: () -> Unit, onSettings: () -> 
                     color = Ink.Black,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 560.dp).padding(end = 16.dp),
+                    modifier = Modifier.widthIn(max = 380.dp).padding(end = 16.dp),
                 )
             }
-            if (offlineSince == null) {
+            if (offlineSince == null && state.updateStatus == null) {
                 state.todo.lastSync?.let {
                     Text(
                         "Updated ${formatClock(it, state.use24h)}",
@@ -497,6 +510,8 @@ internal fun Footer(state: BoardState, onRefresh: () -> Unit, onSettings: () -> 
                     )
                 }
             }
+            ModeSwitch(state.mode, onMode)
+            Spacer(Modifier.width(16.dp))
             if (state.update != null) {
                 InkButton("Update", selected = true, small = true, onClick = onUpdate)
                 Spacer(Modifier.width(10.dp))
@@ -532,7 +547,7 @@ private fun OfflinePill(sinceMillis: Long, use24h: Boolean) {
             .padding(horizontal = 14.dp, vertical = 6.dp)
     ) {
         Text(
-            "Offline since ${formatClock(since, use24h)}. The calendar and lists may be out of date.",
+            "Offline since ${formatClock(since, use24h)}",
             fontSize = 17.sp,
             fontWeight = FontWeight.Bold,
             color = Ink.White,
@@ -722,3 +737,9 @@ private fun FlashOverlay(tick: Int) {
         Box(Modifier.fillMaxSize().background(if (phase == 1) Ink.Black else Ink.White))
     }
 }
+
+
+/** Lists column width: a quarter of the screen, kept between 320dp and 420dp. */
+@Composable
+internal fun listsWidth(): androidx.compose.ui.unit.Dp =
+    (LocalConfiguration.current.screenWidthDp * 0.25f).coerceIn(320f, 420f).dp

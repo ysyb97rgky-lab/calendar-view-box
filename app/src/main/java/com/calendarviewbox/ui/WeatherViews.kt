@@ -39,7 +39,7 @@ private val weekdayShort = DateTimeFormatter.ofPattern("EEE")
 
 /** Weather for the header strip: today's icon and temperatures, then the next four days. */
 @Composable
-fun WeatherHeader(state: BoardState) {
+fun WeatherHeader(state: BoardState, maxDays: Int = 4) {
     val weather = state.weather
     val today = weather?.days?.firstOrNull { it.date == state.today }
     if (weather == null || today == null) {
@@ -72,7 +72,7 @@ fun WeatherHeader(state: BoardState) {
         }
         Spacer(Modifier.width(28.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-            weather.days.filter { it.date.isAfter(state.today) }.take(4).forEach { day ->
+            weather.days.filter { it.date.isAfter(state.today) }.take(maxDays).forEach { day ->
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(day.date.format(weekdayShort), fontSize = 16.sp, color = Ink.DarkGrey)
                     WeatherIcon(day.code, 30.dp)
