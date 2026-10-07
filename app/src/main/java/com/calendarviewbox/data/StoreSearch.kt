@@ -61,65 +61,70 @@ class StoreSearch(private val context: Context) {
     // ---------------- Woolworths ----------------
 
     private suspend fun woolworths(query: String): List<StoreProduct> =
-        parseProducts(STORE_WOOLWORTHS, readFromPage(searchUrl(STORE_WOOLWORTHS, query), woolworthsScript(query)))
+        parseProducts(STORE_WOOLWORTHS, readFromPage(searchUrl(STORE_WOOLWORTHS, query), woolworthsPoll(query)))
 
     /**
-     * Woolworths' own search API, called from inside its page so it carries the site's cookies.
-     * Waits a moment first (the site's bot check sets cookies after load) and retries a few times.
-     * Leaves a short list of products in window.__cvbResult for the app to collect.
+     * Run every check. Sets up a search using Woolworths' own API from inside its page (so it
+     * carries the site's cookies), starts it once the page has loaded, retries every few seconds,
+     * and reports the result. No JavaScript timers, which Android may pause on hidden pages.
      */
-    private fun woolworthsScript(query: String): String = """
+    private fun woolworthsPoll(query: String): String = """
         (function(){
-          if (window.__cvb) return "running"; window.__cvb = true;
-          var q = ${JSONObject.quote(query)};
-          var attempt = 0;
-          function finish(list){ window.__cvbResult = JSON.stringify({ ok: true, products: list }); }
-          function problem(o){ o.attempt = attempt; window.__cvbProblem = JSON.stringify(o); }
-          function compact(j){
-            var out = [];
-            (j.Products || []).forEach(function(g){
-              (g.Products || [g]).forEach(function(p){
-                if (p == null || p.Price == null) return;
-                out.push({ id: String(p.Stockcode), name: String(p.DisplayName || p.Name || "").trim(),
-                  size: p.PackageSize || "", price: p.Price, was: p.WasPrice || null,
-                  unit: p.CupString || "", special: !!p.IsOnSpecial });
+          if (window.__cvbResult) return window.__cvbResult;
+          if (!window.__cvbGo) {
+            var q = ${JSONObject.quote(query)};
+            var compact = function(j){
+              var out = [];
+              (j.Products || []).forEach(function(g){
+                (g.Products || [g]).forEach(function(p){
+                  if (p == null || p.Price == null) return;
+                  out.push({ id: String(p.Stockcode), name: String(p.DisplayName || p.Name || "").trim(),
+                    size: p.PackageSize || "", price: p.Price, was: p.WasPrice || null,
+                    unit: p.CupString || "", special: !!p.IsOnSpecial });
+                });
               });
-            });
-            return out.slice(0, 10);
+              return out.slice(0, 10);
+            };
+            var keep = function(j){
+              if (j && j.Products) { window.__cvbResult = JSON.stringify({ ok: true, products: compact(j) }); return true; }
+              return false;
+            };
+            var body = { Filters: [], IsSpecial: false, Location: "/shop/search/products?searchTerm=" + encodeURIComponent(q),
+              PageNumber: 1, PageSize: 24, SearchTerm: q, SortType: "TraderRelevance",
+              IsRegisteredRewardCardPromotion: null, ExcludeSearchTypes: ["UntraceableVendors"],
+              GpBoost: 0, GroupEdmVariants: false, EnableAdReRanking: false };
+            window.__cvbGo = function(){
+              window.__cvbBusy = true;
+              window.__cvbAttempts = (window.__cvbAttempts || 0) + 1;
+              window.__cvbLast = Date.now();
+              fetch("/apis/ui/Search/products", { method: "POST", credentials: "include",
+                    headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(body) })
+                .then(function(r){ if (!r.ok) throw new Error("POST HTTP " + r.status); return r.json(); })
+                .then(function(j){ if (!keep(j)) throw new Error("POST had no Products"); })
+                .catch(function(e){
+                  return fetch("/apis/ui/Search/products?searchTerm=" + encodeURIComponent(q) + "&pageNumber=1&pageSize=24&sortType=TraderRelevance",
+                               { credentials: "include", headers: { "Accept": "application/json" } })
+                    .then(function(r){ if (!r.ok) throw new Error("GET HTTP " + r.status); return r.json(); })
+                    .then(function(j){ if (!keep(j)) throw new Error("GET had no Products"); })
+                    .catch(function(e2){ window.__cvbProblem = String(e) + " / " + String(e2); });
+                })
+                .then(function(){ window.__cvbBusy = false; }, function(){ window.__cvbBusy = false; });
+            };
           }
-          var body = { Filters: [], IsSpecial: false, Location: "/shop/search/products?searchTerm=" + encodeURIComponent(q),
-            PageNumber: 1, PageSize: 24, SearchTerm: q, SortType: "TraderRelevance",
-            IsRegisteredRewardCardPromotion: null, ExcludeSearchTypes: ["UntraceableVendors"],
-            GpBoost: 0, GroupEdmVariants: false, EnableAdReRanking: false };
-          function viaGet(first){
-            fetch("/apis/ui/Search/products?searchTerm=" + encodeURIComponent(q) + "&pageNumber=1&pageSize=24&sortType=TraderRelevance",
-                  { credentials: "include", headers: { "Accept": "application/json" } })
-              .then(function(r){ if (!r.ok) throw new Error("GET HTTP " + r.status); return r.json(); })
-              .then(function(j){ if (j && j.Products) finish(compact(j)); else throw new Error("GET had no Products"); })
-              .catch(function(e){
-                problem({ error: String(first) + " / " + String(e) });
-                if (attempt < 4) setTimeout(viaPost, 3000);
-              });
-          }
-          function viaPost(){
-            attempt++;
-            fetch("/apis/ui/Search/products", { method: "POST", credentials: "include",
-                  headers: { "Content-Type": "application/json", "Accept": "application/json" }, body: JSON.stringify(body) })
-              .then(function(r){ if (!r.ok) throw new Error("POST HTTP " + r.status); return r.json(); })
-              .then(function(j){ if (j && j.Products) finish(compact(j)); else throw new Error("POST had no Products"); })
-              .catch(function(e){ viaGet(e); });
-          }
-          setTimeout(viaPost, 2500);
-          return "started";
-        })();
+          var ready = document.readyState === "complete";
+          var waited = Date.now() - (window.__cvbLast || 0);
+          if (ready && !window.__cvbBusy && (window.__cvbAttempts || 0) < 8 && waited > 3000) window.__cvbGo();
+          return JSON.stringify({ ok: false, error: window.__cvbProblem || "waiting", attempts: window.__cvbAttempts || 0,
+            busy: !!window.__cvbBusy, ready: document.readyState, title: document.title });
+        })()
     """.trimIndent()
 
     // ---------------- Coles ----------------
 
     private suspend fun coles(query: String): List<StoreProduct> =
-        parseProducts(STORE_COLES, readFromPage(searchUrl(STORE_COLES, query), COLES_SCRIPT))
+        parseProducts(STORE_COLES, readFromPage(searchUrl(STORE_COLES, query), COLES_POLL))
 
-    /** Reads the short product list the page scripts leave behind. */
+    /** Reads the short product list the page checks return. */
     private fun parseProducts(store: String, raw: String): List<StoreProduct> {
         val list = JSONObject(raw).optJSONArray("products") ?: JSONArray()
         val out = mutableListOf<StoreProduct>()
@@ -150,9 +155,10 @@ class StoreSearch(private val context: Context) {
     private class PageReport {
         var page: String? = null
         var problem: String? = null
-        var started = false
         var loads = 0
-        var polls = 0
+        var checks = 0
+        var answered = 0
+        var attached = false
     }
 
     /** evaluateJavascript hands back a JSON-encoded value; this turns it into a plain string, or null. */
@@ -162,84 +168,81 @@ class StoreSearch(private val context: Context) {
     }.getOrNull()
 
     /**
-     * Opens [url] in a hidden WebView sized like a phone screen and runs [script] once each page
-     * finishes loading. The script leaves its result on the page; this checks for it every
-     * 700ms. A bot-check page may come first; it keeps waiting for the real one.
+     * Opens [url] in a WebView kept behind the board (so Android treats it as a visible page),
+     * then runs [poll] every 800ms until it returns { ok: true, products: [...] }. A bot-check
+     * page may come first; it keeps checking until the real page answers or time runs out.
      */
     @SuppressLint("SetJavaScriptEnabled")
-    private suspend fun readFromPage(url: String, script: String): String = withContext(Dispatchers.Main) {
+    private suspend fun readFromPage(url: String, poll: String): String = withContext(Dispatchers.Main) {
         val report = PageReport()
         var webView: WebView? = null
+        val host = WebHost.container
         try {
             val result = withTimeoutOrNull(TIMEOUT_MS) {
                 suspendCancellableCoroutine<String> { cont ->
-                    val view = WebView(context)
+                    val view = WebView(host?.context ?: context)
                     webView = view
-                    configure(view, context)
-                    // A real size, so the page lays out like it would on a phone.
-                    view.measure(
-                        android.view.View.MeasureSpec.makeMeasureSpec(1080, android.view.View.MeasureSpec.EXACTLY),
-                        android.view.View.MeasureSpec.makeMeasureSpec(1920, android.view.View.MeasureSpec.EXACTLY),
-                    )
-                    view.layout(0, 0, 1080, 1920)
+                    configure(view, view.context)
                     view.settings.blockNetworkImage = true // results only; skip product photos
+                    if (host != null) {
+                        host.addView(view, android.view.ViewGroup.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT))
+                        report.attached = true
+                    } else {
+                        view.measure(
+                            android.view.View.MeasureSpec.makeMeasureSpec(1080, android.view.View.MeasureSpec.EXACTLY),
+                            android.view.View.MeasureSpec.makeMeasureSpec(1920, android.view.View.MeasureSpec.EXACTLY),
+                        )
+                        view.layout(0, 0, 1080, 1920)
+                    }
                     view.webViewClient = object : WebViewClient() {
                         override fun onPageFinished(v: WebView, loadedUrl: String) {
                             report.loads++
                             report.page = "'" + v.title + "' at " + loadedUrl
-                            v.evaluateJavascript(script) { started ->
-                                if (decode(started) == "started") report.started = true
-                            }
                         }
                     }
-                    val poll = object : Runnable {
+                    val check = object : Runnable {
                         override fun run() {
                             if (!cont.isActive) return
-                            report.polls++
-                            view.evaluateJavascript(POLL_SCRIPT) { value ->
-                                val state = decode(value)?.let { runCatching { JSONObject(it) }.getOrNull() }
-                                if (state != null) {
-                                    if (state.optBoolean("s")) report.started = true
-                                    if (!state.isNull("p")) report.problem = state.optString("p").take(300)
-                                    if (!state.isNull("r")) {
-                                        val r = state.optString("r")
-                                        if (runCatching { JSONObject(r).optBoolean("ok") }.getOrDefault(false)) {
-                                            if (cont.isActive) cont.resume(r)
-                                            return@evaluateJavascript
-                                        }
-                                    }
+                            report.checks++
+                            view.evaluateJavascript(poll) { value ->
+                                report.answered++
+                                val text = decode(value)
+                                val ok = text != null && runCatching { JSONObject(text).optBoolean("ok") }.getOrDefault(false)
+                                if (ok) {
+                                    if (cont.isActive) cont.resume(text!!)
+                                    return@evaluateJavascript
                                 }
-                                view.postDelayed(this, 700)
+                                if (text != null) report.problem = text.take(300)
+                                view.postDelayed(this, 800)
                             }
                         }
                     }
                     view.loadUrl(url)
-                    view.postDelayed(poll, 1500)
+                    view.postDelayed(check, 1200)
                 }
             }
             result ?: throw StoreProblem(
                 buildString {
                     append("No results after ${TIMEOUT_MS / 1000}s. Pages loaded: ${report.loads}. ")
-                    append(if (report.started) "Script ran. " else "Script didn't start. ")
-                    append("Checks: ${report.polls}.")
-                    report.page?.let { append(" Last page: $it.") }
-                    report.problem?.let { append(" Page reported: $it") }
+                    append("Checks: ${report.checks}, answered: ${report.answered}. ")
+                    append(if (report.attached) "On screen. " else "Off screen. ")
+                    report.page?.let { append("Last page: $it. ") }
+                    report.problem?.let { append("Page said: $it") }
                 }
             )
         } finally {
             webView?.let {
                 it.stopLoading()
+                host?.removeView(it)
                 it.destroy()
             }
         }
     }
 
     companion object {
-        private const val TIMEOUT_MS = 35_000L
+        private const val TIMEOUT_MS = 40_000L
 
-        /** Asks the page what the store script has found so far. */
-        private const val POLL_SCRIPT =
-            "(function(){ return JSON.stringify({ r: window.__cvbResult || null, p: window.__cvbProblem || null, s: !!window.__cvb }); })()"
         private const val MAX_PER_STORE = 10
 
         fun searchUrl(store: String, query: String): String {
@@ -271,15 +274,12 @@ class StoreSearch(private val context: Context) {
         }
 
         /**
-         * Coles renders search results into the page's Next.js data. Poll until it's there; after a
-         * few seconds also try reading the product tiles on the page. Reports what it found if neither works.
+         * Run every check: looks for Coles' search results in the page's Next.js data, then in the
+         * product tiles on the page, and reports what it found if neither has results yet.
          */
-        private val COLES_SCRIPT = """
+        private val COLES_POLL = """
             (function(){
-              if (window.__cvb) return "running"; window.__cvb = true;
-              var tries = 0;
-              function finish(list){ window.__cvbResult = JSON.stringify({ ok: true, products: list.slice(0, 10) }); }
-              function fromData(results){
+              var fromData = function(results){
                 return results.filter(function(r){ return r && r._type === "PRODUCT"; }).map(function(r){
                   var pr = r.pricing || {};
                   var brand = r.brand || "", name = r.name || "";
@@ -287,8 +287,8 @@ class StoreSearch(private val context: Context) {
                     size: r.size || "", price: pr.now, was: pr.was || null, unit: pr.comparable || "",
                     special: !!(pr.was && pr.was > pr.now) || !!pr.onlineSpecial || !!pr.promotionType };
                 });
-              }
-              function fromTiles(){
+              };
+              var fromTiles = function(){
                 var out = [];
                 document.querySelectorAll('[data-testid="product-tile"], section.product__tile, .product__tile').forEach(function(t){
                   var title = t.querySelector('[data-testid="product-title"], .product__title, h2, h3');
@@ -299,31 +299,33 @@ class StoreSearch(private val context: Context) {
                   out.push({ id: "", name: title.textContent.trim(), size: "", price: p, was: null, unit: "", special: false });
                 });
                 return out;
+              };
+              var el = document.getElementById("__NEXT_DATA__");
+              var keys = "";
+              if (el) {
+                try {
+                  var nd = JSON.parse(el.textContent);
+                  var pp = nd && nd.props && nd.props.pageProps;
+                  keys = pp ? Object.keys(pp).join(",") : "no pageProps";
+                  var sr = pp && pp.searchResults;
+                  if (sr && sr.results) {
+                    var list = fromData(sr.results);
+                    if (list.length) return JSON.stringify({ ok: true, products: list.slice(0, 10) });
+                    keys += " (results empty)";
+                  }
+                } catch (e) { keys = "unreadable: " + e; }
               }
-              function attempt(){
-                tries++;
-                var el = document.getElementById("__NEXT_DATA__");
-                var keys = "";
-                if (el) {
-                  try {
-                    var nd = JSON.parse(el.textContent);
-                    var pp = nd && nd.props && nd.props.pageProps;
-                    keys = pp ? Object.keys(pp).join(",") : "no pageProps";
-                    var sr = pp && pp.searchResults;
-                    if (sr && sr.results) { finish(fromData(sr.results)); return; }
-                  } catch (e) { keys = "unreadable: " + e; }
-                }
-                if (tries > 6) {
-                  var found = fromTiles();
-                  if (found.length) { finish(found); return; }
-                }
-                window.__cvbProblem = JSON.stringify({ error: "no results yet", title: document.title, nextData: !!el,
-                  pageProps: keys, tiles: document.querySelectorAll('[data-testid="product-tile"]').length });
-                if (tries <= 60) setTimeout(attempt, 500);
-              }
-              attempt();
-              return "started";
-            })();
+              var tiles = fromTiles();
+              if (tiles.length) return JSON.stringify({ ok: true, products: tiles.slice(0, 10) });
+              return JSON.stringify({ ok: false, error: "no results yet", title: document.title, ready: document.readyState,
+                nextData: !!el, pageProps: keys, tiles: document.querySelectorAll('[data-testid="product-tile"]').length });
+            })()
         """.trimIndent()
     }
+}
+
+
+/** A place behind the board where store pages load, so Android treats them as visible. Set by MainActivity. */
+object WebHost {
+    var container: android.view.ViewGroup? = null
 }

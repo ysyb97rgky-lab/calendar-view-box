@@ -11,6 +11,7 @@ import android.graphics.Typeface
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -66,7 +67,18 @@ class MainActivity : ComponentActivity() {
             )
         }
 
+        // Store pages for grocery prices load here, behind the board, where Android treats them as visible.
+        val content = findViewById<ViewGroup>(android.R.id.content)
+        val host = FrameLayout(this)
+        content.addView(host, 0, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        com.calendarviewbox.data.WebHost.container = host
+
         if (!hasCalendarPermission()) requestCalendarPermission()
+    }
+
+    override fun onDestroy() {
+        com.calendarviewbox.data.WebHost.container = null
+        super.onDestroy()
     }
 
     /** Plain Android views (no Compose), so this screen works even if the board can't draw. */
